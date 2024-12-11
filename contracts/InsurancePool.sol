@@ -58,7 +58,8 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
     function updateContractLogic(
         address newImplementation,
         bytes memory data
-    ) external onlyOwner {
+    ) external {
+        require(msg.sender == governor, "not authorized update call.");
         upgradeToAndCall(newImplementation, data);
     }
 

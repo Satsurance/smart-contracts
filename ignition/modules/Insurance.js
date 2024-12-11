@@ -27,7 +27,7 @@ exports.InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     "ERC1967Proxy",
     [
       sursTokenLogic,
-      m.encodeFunctionCall(sursTokenLogic, "initialize", [initialSupply]), // TODO change owner of the contract to governor
+      m.encodeFunctionCall(sursTokenLogic, "initialize", [initialSupply]),
     ],
     { id: "SursTokenProxy" }
   );
@@ -60,6 +60,7 @@ exports.InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   // Set logic abi to proxies
   const insurancePool = m.contractAt("InsurancePool", insurancePoolProxy);
   const sursToken = m.contractAt("SursToken", sursTokenProxy);
+  m.call(sursToken, "transferOwnership", [timelock]);
 
   return { btcToken, sursToken, insurancePool, governor_c, timelock };
 });
