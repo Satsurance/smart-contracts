@@ -11,6 +11,14 @@ struct PoolStake {
     uint initialAmount;
 }
 
+struct CaseClaim {
+    address receiver;
+    uint amount;
+    uint created;
+    string description;
+    bool executed;
+}
+
 contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
     address public governor;
     IERC20 public poolAsset;
@@ -19,6 +27,9 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
 
     uint public totalAssetsStaked;
     mapping(address => PoolStake) public addressAssets;
+
+    uint latestClaim;
+    mapping(uint => CaseClaim) public claims;
 
     constructor() payable {
         _disableInitializers();
@@ -35,8 +46,9 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         poolAsset = IERC20(_poolAsset);
         totalAssetsStaked = 0;
         minTimeStake = 1 weeks;
+        latestClaim = 0;
         // TODO calculate a better math
-        SHARED_K = 1000 * 1e18; // initial koefficient * precision
+        SHARED_K = 100000 * 1e18; // initial koefficient * precision
     }
 
     function _authorizeUpgrade(
@@ -50,12 +62,10 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         upgradeToAndCall(newImplementation, data);
     }
 
-    function getPoolPosition()
-        external
-        view
-        returns (address sender, PoolStake memory position)
-    {
-        return (msg.sender, addressAssets[msg.sender]);
+    function getPoolPosition(
+        address account
+    ) external view returns (PoolStake memory position) {
+        return addressAssets[account];
     }
 
     function joinPool(uint amount) external returns (bool completed) {
@@ -101,13 +111,33 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         return true;
     }
 
-    // Is done by governance event
-    function slash(uint amount, address receiver) external {
-        require(msg.sender == governor, "Not authorized call.");
+    function makeClaim(
+        address receiver,
+        uint amount,
+        string memory description
+    ) external {
+        claims[++latestClaim] = CaseClaim(
+            receiver,
+            amount,
+            block.timestamp,
+            description,
+            false
+        );
+    }
+
+    function executeClaim(
+        uint claimId
+    ) external onlyOwner returns (bool completed) {
+        require(
+            claims[claimId].executed == false,
+            "Claim is already executed."
+        );
+        claims[claimId].executed = true;
         SHARED_K =
             (SHARED_K * totalAssetsStaked) /
-            (totalAssetsStaked - amount);
-        totalAssetsStaked -= amount;
-        poolAsset.transfer(receiver, amount);
+            (totalAssetsStaked - claims[claimId].amount);
+        totalAssetsStaked -= claims[claimId].amount;
+        poolAsset.transfer(claims[claimId].receiver, claims[claimId].amount);
+        return true;
     }
 }

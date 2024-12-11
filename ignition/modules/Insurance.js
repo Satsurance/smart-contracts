@@ -4,15 +4,15 @@
 const { buildModule } = require("@nomicfoundation/hardhat-ignition/modules");
 const { ethers } = require("ethers");
 
-const INITIAL_SUPPLY = 1;
-const WBTC_INITIAL_SUPPLY = 1;
+const INITIAL_SUPPLY = ethers.parseUnits("2000", "ether").toString();
+const WBTC_INITIAL_SUPPLY = ethers.parseUnits("51000000", "ether").toString();
 const MIN_TIMELOCK_DELAY = 24 * 60 * 60;
 const PROPOSER_ROLE_ID = ethers.solidityPackedKeccak256(
   ["string"],
   ["PROPOSER_ROLE"]
 );
 
-module.exports = buildModule("InsuranceContracts", (m) => {
+exports.InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   const initialSupply = m.getParameter("initialSupply", INITIAL_SUPPLY);
   const wbtcInitialSupply = m.getParameter(
     "wbtcInitialSupply",
@@ -23,13 +23,13 @@ module.exports = buildModule("InsuranceContracts", (m) => {
 
   // Deploy upgradable token
   let sursTokenLogic = m.contract("SursToken", [], { id: "sursTokenLogic" });
-  let sursToken = m.contract(
+  let sursTokenProxy = m.contract(
     "ERC1967Proxy",
     [
       sursTokenLogic,
       m.encodeFunctionCall(sursTokenLogic, "initialize", [initialSupply]), // TODO change owner of the contract to governor
     ],
-    { id: "SursToken" }
+    { id: "SursTokenProxy" }
   );
 
   let timelock = m.contract("Timelock", [
@@ -37,25 +37,29 @@ module.exports = buildModule("InsuranceContracts", (m) => {
     [],
     ["0x0000000000000000000000000000000000000000"],
   ]);
-  let governor_c = m.contract("SatsuranceGovernor", [sursToken, timelock]);
+  let governor_c = m.contract("SatsuranceGovernor", [sursTokenProxy, timelock]);
   m.call(timelock, "grantRole", [PROPOSER_ROLE_ID, governor_c]);
 
   // Deploy upgradable Insurance Pool
   let insurancePoolLogic = m.contract("InsurancePool", [], {
     id: "insurancePoolLogic",
   });
-  let insurancePool = m.contract(
+  let insurancePoolProxy = m.contract(
     "ERC1967Proxy",
     [
       insurancePoolLogic,
       m.encodeFunctionCall(insurancePoolLogic, "initialize", [
         timelock,
-        governor_c,
         btcToken,
+        m.getAccount(0),
       ]),
     ],
-    { id: "InsurancePool" }
+    { id: "InsurancePoolProxy" }
   );
 
-  return { btcToken, sursToken };
+  // Set logic abi to proxies
+  const insurancePool = m.contractAt("InsurancePool", insurancePoolProxy);
+  const sursToken = m.contractAt("SursToken", sursTokenProxy);
+
+  return { btcToken, sursToken, insurancePool, governor_c, timelock };
 });
