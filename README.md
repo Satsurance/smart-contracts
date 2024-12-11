@@ -1,13 +1,9 @@
-# Sample Hardhat Project
+# Sample Satsurance Project
 
-This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a Hardhat Ignition module that deploys that contract.
+This project demonstrates a basic Satsurance logic and use cases. It is focus on testing the math of the protol.
 
-Try running some of the following tasks:
+To run tests:
 
 ```shell
-npx hardhat help
 npx hardhat test
-REPORT_GAS=true npx hardhat test
-npx hardhat node
-npx hardhat ignition deploy ./ignition/modules/Lock.js
 ```
