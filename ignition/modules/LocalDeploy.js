@@ -19,11 +19,16 @@ module.exports = buildModule("LocalDeploy", async (m) => {
     ethers.parseUnits("10", "ether").toString(),
   ]);
 
-  const [signer] = await ethers.getSigners();
-  const tx = await signer.sendTransaction({
-    to: BIG_STAKER_ADDR,
-    value: ethers.parseUnits("10", "ether").toString(),
-  });
+  const send1 = m.send(
+    "Send2Staker",
+    BIG_STAKER_ADDR,
+    BigNum(ethers.parseUnits("10", "ether").toString())
+  );
+  const send2 = m.send(
+    "Send2Owner",
+    BIG_STAKER_ADDR,
+    BigNum(ethers.parseUnits("10", "ether").toString())
+  );
 
-  return { tx };
+  return { send1, send2 };
 });

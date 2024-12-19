@@ -1,6 +1,3 @@
-// This setup uses Hardhat Ignition to manage smart contract deployments.
-// Learn more about it at https://hardhat.org/ignition
-
 const { buildModule } = require("@nomicfoundation/hardhat-ignition/modules");
 const { ethers } = require("ethers");
 
@@ -64,3 +61,5 @@ exports.InsuranceSetup = buildModule("InsuranceContracts", (m) => {
 
   return { btcToken, sursToken, insurancePool, governor_c, timelock };
 });
+
+module.exports = exports.InsuranceSetup;
