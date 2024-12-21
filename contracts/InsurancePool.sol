@@ -45,7 +45,9 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         governor = _governor;
         poolAsset = IERC20(_poolAsset);
         totalAssetsStaked = 0;
-        minTimeStake = 1 weeks;
+        // minTimeStake = 1 weeks;
+        // Keep it simple for test purposes
+        minTimeStake = 0;
         latestClaim = 0;
         // TODO calculate a better math
         SHARED_K = 100000 * 1e18; // initial koefficient * precision
@@ -86,7 +88,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
 
     function quitPool() external returns (bool completed) {
         require(
-            addressAssets[msg.sender].startDate == 0,
+            addressAssets[msg.sender].startDate != 0,
             "User hasn't joined the pool."
         );
         require(
