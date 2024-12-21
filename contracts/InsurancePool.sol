@@ -11,14 +11,6 @@ struct PoolStake {
     uint initialAmount;
 }
 
-struct CaseClaim {
-    address receiver;
-    uint amount;
-    uint created;
-    string description;
-    bool executed;
-}
-
 contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
     address public governor;
     address public claimer;
@@ -28,9 +20,6 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
 
     uint public totalAssetsStaked;
     mapping(address => PoolStake) public addressAssets;
-
-    uint latestClaim;
-    mapping(uint => CaseClaim) public claims;
 
     modifier onlyClaimer() {
         require(msg.sender == claimer, "Caller is not the claimer");
@@ -56,7 +45,6 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         // minTimeStake = 1 weeks;
         // Keep it simple for test purposes
         minTimeStake = 0;
-        latestClaim = 0;
         // TODO calculate a better math
         SHARED_K = 100000 * 1e18; // initial koefficient * precision
     }
@@ -127,33 +115,15 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         return true;
     }
 
-    function makeClaim(
-        address receiver,
-        uint amount,
-        string memory description
-    ) external {
-        claims[++latestClaim] = CaseClaim(
-            receiver,
-            amount,
-            block.timestamp,
-            description,
-            false
-        );
-    }
-
     function executeClaim(
-        uint claimId
+        address receiver,
+        uint amount
     ) external onlyClaimer returns (bool completed) {
-        require(
-            claims[claimId].executed == false,
-            "Claim is already executed."
-        );
-        claims[claimId].executed = true;
         SHARED_K =
             (SHARED_K * totalAssetsStaked) /
-            (totalAssetsStaked - claims[claimId].amount);
-        totalAssetsStaked -= claims[claimId].amount;
-        poolAsset.transfer(claims[claimId].receiver, claims[claimId].amount);
+            (totalAssetsStaked - amount);
+        totalAssetsStaked -= amount;
+        poolAsset.transfer(receiver, amount);
         return true;
     }
 }

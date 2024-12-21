@@ -5,15 +5,18 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "./IPool.sol";
 
 contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     // State variables
     IERC20 public daoToken;
+    IPool public insurancePool;
     uint256 public minimumStake;
     uint256 public votingPeriod;
 
     struct Claim {
         address proposer;
+        address receiver;
         string description;
         uint256 amount;
         uint256 startTime;
@@ -46,6 +49,7 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     event ClaimCreated(
         uint256 indexed claimId,
         address proposer,
+        address receiver,
         string description,
         uint256 amount,
         uint256 timestamp
@@ -65,6 +69,7 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
     function initialize(
         address _daoToken,
+        address _insurancePool,
         uint256 _minimumStake,
         uint256 _votingPeriod
     ) public initializer {
@@ -72,6 +77,7 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         __UUPSUpgradeable_init();
 
         daoToken = IERC20(_daoToken);
+        insurancePool = IPool(_insurancePool);
         minimumStake = _minimumStake;
         votingPeriod = _votingPeriod;
     }
@@ -145,6 +151,7 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
     // Create a new claim
     function createClaim(
+        address _receiver,
         string calldata _description,
         uint256 _amount
     ) external {
@@ -152,10 +159,12 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
             stakes[msg.sender].currentAmount >= minimumStake,
             "Must have minimum stake"
         );
+        require(_receiver != address(0), "Invalid receiver address");
 
         uint256 claimId = claimCounter++;
         claims[claimId] = Claim({
             proposer: msg.sender,
+            receiver: _receiver,
             description: _description,
             amount: _amount,
             startTime: block.timestamp,
@@ -168,6 +177,7 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         emit ClaimCreated(
             claimId,
             msg.sender,
+            _receiver,
             _description,
             _amount,
             block.timestamp
@@ -213,10 +223,8 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         require(claim.forVotes > claim.againstVotes, "Vote failed");
 
         claim.executed = true;
-        require(
-            daoToken.transfer(claim.proposer, claim.amount),
-            "Transfer failed"
-        );
+
+        insurancePool.executeClaim(claim.receiver, claim.amount);
 
         emit ClaimExecuted(_claimId);
     }
@@ -229,6 +237,7 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         view
         returns (
             address proposer,
+            address receiver,
             string memory description,
             uint256 amount,
             uint256 startTime,
@@ -241,6 +250,7 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         Claim storage claim = claims[_claimId];
         return (
             claim.proposer,
+            claim.receiver,
             claim.description,
             claim.amount,
             claim.startTime,
