@@ -9,12 +9,17 @@ const PROPOSER_ROLE_ID = ethers.solidityPackedKeccak256(
   ["PROPOSER_ROLE"]
 );
 
+// Constants for Claimer
+const MINIMUM_STAKE = ethers.parseUnits("100", "ether").toString(); // 100 SURS tokens
+const VOTING_PERIOD = 7 * 24 * 60 * 60; // 1 week in seconds
+
 exports.InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   const initialSupply = m.getParameter("initialSupply", INITIAL_SUPPLY);
   const wbtcInitialSupply = m.getParameter(
     "wbtcInitialSupply",
     WBTC_INITIAL_SUPPLY
   );
+
   // Mock Btc token
   let btcToken = m.contract("BTCToken", [wbtcInitialSupply]);
 
@@ -37,7 +42,7 @@ exports.InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   let governor_c = m.contract("SatsuranceGovernor", [sursTokenProxy, timelock]);
   m.call(timelock, "grantRole", [PROPOSER_ROLE_ID, governor_c]);
 
-  // Deploy upgradable Insurance Pool
+  // Deploy upgradable Insurance Pool (initially with zero address for claimer)
   let insurancePoolLogic = m.contract("InsurancePool", [], {
     id: "insurancePoolLogic",
   });
@@ -46,20 +51,53 @@ exports.InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     [
       insurancePoolLogic,
       m.encodeFunctionCall(insurancePoolLogic, "initialize", [
-        timelock,
+        m.getAccount(0),
         btcToken,
         m.getAccount(0),
+        ethers.ZeroAddress, // temporary claimer address
       ]),
     ],
     { id: "InsurancePoolProxy" }
   );
 
-  // Set logic abi to proxies
+  // Deploy upgradable Claimer
+  let claimerLogic = m.contract("Claimer", [], {
+    id: "claimerLogic",
+  });
+  let claimerProxy = m.contract(
+    "ERC1967Proxy",
+    [
+      claimerLogic,
+      m.encodeFunctionCall(claimerLogic, "initialize", [
+        sursTokenProxy,
+        insurancePoolProxy,
+        MINIMUM_STAKE,
+        VOTING_PERIOD,
+      ]),
+    ],
+    { id: "ClaimerProxy" }
+  );
+
+  // Set Claimer address in InsurancePool
   const insurancePool = m.contractAt("InsurancePool", insurancePoolProxy);
+  m.call(insurancePool, "updateClaimer", [claimerProxy]);
+  m.call(insurancePool, "transferOwnership", [timelock]);
+
+  // Set contract ABIs to proxies
   const sursToken = m.contractAt("SursToken", sursTokenProxy);
+  const claimer = m.contractAt("Claimer", claimerProxy);
+
+  // Transfer token ownership to timelock
   m.call(sursToken, "transferOwnership", [timelock]);
 
-  return { btcToken, sursToken, insurancePool, governor_c, timelock };
+  return {
+    btcToken,
+    sursToken,
+    insurancePool,
+    governor_c,
+    timelock,
+    claimer,
+  };
 });
 
-module.exports = exports.InsuranceSetup;
+// module.exports = exports.InsuranceSetup;
