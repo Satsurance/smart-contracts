@@ -23,22 +23,39 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         bool exists;
     }
 
-    struct Stake {
+    struct StakeSnapshot {
         uint256 amount;
+        uint256 timestamp;
+    }
+
+    struct UserStake {
+        uint256 currentAmount;
         uint256 lastVoteTime;
+        StakeSnapshot[] history;
     }
 
     mapping(uint256 => Claim) public claims;
-    mapping(address => Stake) public stakes;
+    mapping(address => UserStake) public stakes;
     mapping(uint256 => mapping(address => bool)) public hasVoted;
 
     uint256 public claimCounter;
 
     // Events
-    event Staked(address indexed user, uint256 amount);
-    event Unstaked(address indexed user, uint256 amount);
-    event ClaimCreated(uint256 indexed claimId, address proposer, string description, uint256 amount);
-    event Voted(uint256 indexed claimId, address indexed voter, bool support, uint256 weight);
+    event Staked(address indexed user, uint256 amount, uint256 timestamp);
+    event Unstaked(address indexed user, uint256 amount, uint256 timestamp);
+    event ClaimCreated(
+        uint256 indexed claimId,
+        address proposer,
+        string description,
+        uint256 amount,
+        uint256 timestamp
+    );
+    event Voted(
+        uint256 indexed claimId,
+        address indexed voter,
+        bool support,
+        uint256 weight
+    );
     event ClaimExecuted(uint256 indexed claimId);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -59,32 +76,82 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         votingPeriod = _votingPeriod;
     }
 
+    // Helper function to get stake amount at a specific timestamp
+    function getStakeAtTime(
+        address _user,
+        uint256 _timestamp
+    ) public view returns (uint256) {
+        UserStake storage userStake = stakes[_user];
+
+        // If no stake history, return 0
+        if (userStake.history.length == 0) return 0;
+
+        // Find the most recent stake before the timestamp
+        for (uint256 i = userStake.history.length; i > 0; i--) {
+            if (userStake.history[i - 1].timestamp <= _timestamp) {
+                return userStake.history[i - 1].amount;
+            }
+        }
+
+        return 0;
+    }
+
     // Stake DAO tokens to participate in voting
     function stake(uint256 _amount) external {
         require(_amount >= minimumStake, "Amount below minimum stake");
-        require(daoToken.transferFrom(msg.sender, address(this), _amount), "Transfer failed");
+        require(
+            daoToken.transferFrom(msg.sender, address(this), _amount),
+            "Transfer failed"
+        );
 
-        stakes[msg.sender].amount += _amount;
-        emit Staked(msg.sender, _amount);
+        UserStake storage userStake = stakes[msg.sender];
+
+        // Update current amount
+        userStake.currentAmount += _amount;
+
+        // Create new stake snapshot
+        userStake.history.push(
+            StakeSnapshot({
+                amount: userStake.currentAmount,
+                timestamp: block.timestamp
+            })
+        );
+
+        emit Staked(msg.sender, _amount, block.timestamp);
     }
 
     // Unstake tokens if user hasn't voted recently
     function unstake(uint256 _amount) external {
-        Stake storage userStake = stakes[msg.sender];
-        require(userStake.amount >= _amount, "Insufficient stake");
+        UserStake storage userStake = stakes[msg.sender];
+        require(userStake.currentAmount >= _amount, "Insufficient stake");
         require(
             block.timestamp >= userStake.lastVoteTime + votingPeriod,
             "Cannot unstake during active votes"
         );
 
-        userStake.amount -= _amount;
+        userStake.currentAmount -= _amount;
+
+        // Create new stake snapshot
+        userStake.history.push(
+            StakeSnapshot({
+                amount: userStake.currentAmount,
+                timestamp: block.timestamp
+            })
+        );
+
         require(daoToken.transfer(msg.sender, _amount), "Transfer failed");
-        emit Unstaked(msg.sender, _amount);
+        emit Unstaked(msg.sender, _amount, block.timestamp);
     }
 
     // Create a new claim
-    function createClaim(string calldata _description, uint256 _amount) external {
-        require(stakes[msg.sender].amount >= minimumStake, "Must have minimum stake");
+    function createClaim(
+        string calldata _description,
+        uint256 _amount
+    ) external {
+        require(
+            stakes[msg.sender].currentAmount >= minimumStake,
+            "Must have minimum stake"
+        );
 
         uint256 claimId = claimCounter++;
         claims[claimId] = Claim({
@@ -98,7 +165,13 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
             exists: true
         });
 
-        emit ClaimCreated(claimId, msg.sender, _description, _amount);
+        emit ClaimCreated(
+            claimId,
+            msg.sender,
+            _description,
+            _amount,
+            block.timestamp
+        );
     }
 
     // Vote on a claim
@@ -112,8 +185,9 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         );
         require(!hasVoted[_claimId][msg.sender], "Already voted");
 
-        uint256 weight = stakes[msg.sender].amount;
-        require(weight > 0, "Must have stake to vote");
+        // Get stake amount at claim creation time
+        uint256 weight = getStakeAtTime(msg.sender, claim.startTime);
+        require(weight > 0, "Must have had stake before claim creation");
 
         if (_support) {
             claim.forVotes += weight;
@@ -139,22 +213,31 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         require(claim.forVotes > claim.againstVotes, "Vote failed");
 
         claim.executed = true;
-        require(daoToken.transfer(claim.proposer, claim.amount), "Transfer failed");
+        require(
+            daoToken.transfer(claim.proposer, claim.amount),
+            "Transfer failed"
+        );
 
         emit ClaimExecuted(_claimId);
     }
 
     // View function to get claim details
-    function getClaimDetails(uint256 _claimId) external view returns (
-        address proposer,
-        string memory description,
-        uint256 amount,
-        uint256 startTime,
-        uint256 forVotes,
-        uint256 againstVotes,
-        bool executed,
-        bool exists
-    ) {
+    function getClaimDetails(
+        uint256 _claimId
+    )
+        external
+        view
+        returns (
+            address proposer,
+            string memory description,
+            uint256 amount,
+            uint256 startTime,
+            uint256 forVotes,
+            uint256 againstVotes,
+            bool executed,
+            bool exists
+        )
+    {
         Claim storage claim = claims[_claimId];
         return (
             claim.proposer,
@@ -169,5 +252,7 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     }
 
     // Required override for UUPS proxy
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyOwner {}
 }
