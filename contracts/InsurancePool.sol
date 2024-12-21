@@ -21,6 +21,7 @@ struct CaseClaim {
 
 contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
     address public governor;
+    address public claimer;
     IERC20 public poolAsset;
     uint public SHARED_K;
     uint public minTimeStake;
@@ -31,6 +32,11 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
     uint latestClaim;
     mapping(uint => CaseClaim) public claims;
 
+    modifier onlyClaimer() {
+        require(msg.sender == claimer, "Caller is not the claimer");
+        _;
+    }
+
     constructor() payable {
         _disableInitializers();
     }
@@ -38,11 +44,13 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
     function initialize(
         address _governor,
         address _poolAsset,
-        address _owner
+        address _owner,
+        address _claimer
     ) public initializer {
         __Ownable_init(_owner);
 
         governor = _governor;
+        claimer = _claimer;
         poolAsset = IERC20(_poolAsset);
         totalAssetsStaked = 0;
         // minTimeStake = 1 weeks;
@@ -63,6 +71,12 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
     ) external {
         require(msg.sender == governor, "not authorized update call.");
         upgradeToAndCall(newImplementation, data);
+    }
+
+    function updateClaimer(address newClaimer) external {
+        require(msg.sender == governor, "not authorized update call.");
+        require(newClaimer != address(0), "New claimer cannot be zero address");
+        claimer = newClaimer;
     }
 
     function getPoolPosition(
@@ -104,7 +118,6 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         return true;
     }
 
-    // Some protocol do it
     function rewardPool(uint amount) external returns (bool completed) {
         poolAsset.transferFrom(msg.sender, address(this), amount);
         SHARED_K =
@@ -130,7 +143,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
 
     function executeClaim(
         uint claimId
-    ) external onlyOwner returns (bool completed) {
+    ) external onlyClaimer returns (bool completed) {
         require(
             claims[claimId].executed == false,
             "Claim is already executed."
