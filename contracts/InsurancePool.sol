@@ -7,8 +7,12 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeab
 
 struct PoolStake {
     uint startDate;
-    uint amount;
+    uint extendedAmount;
     uint initialAmount;
+}
+
+struct stakingEpsisode {
+    uint rewardRate;
 }
 
 contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
@@ -20,10 +24,77 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
 
     uint public totalAssetsStaked;
     mapping(address => PoolStake) public addressAssets;
+    // Temporary solution
+    mapping(address => uint) public addressForcedUnstaked;
+
+    // Episodes functions
+    uint public episodsStartDate;
+    uint public episodeDuration;
+    mapping(uint => uint) public episodeRewardRate;
+
+    uint public updatedRewardsAt;
+    uint256 public rewardPerTokenStored;
+    mapping(address => uint256) public userRewardPerTokenPaid;
+    mapping(address => uint256) public rewards;
 
     modifier onlyClaimer() {
         require(msg.sender == claimer, "Caller is not the claimer");
         _;
+    }
+
+    function _updateReward(address _account) internal {
+        rewardPerTokenStored = rewardPerToken();
+        updatedRewardsAt = block.timestamp;
+
+        if (_account != address(0)) {
+            rewards[_account] = earned(_account);
+            userRewardPerTokenPaid[_account] = rewardPerTokenStored;
+        }
+    }
+
+    function rewardPerToken() public view returns (uint256) {
+        if (totalAssetsStaked == 0) {
+            return rewardPerTokenStored;
+        }
+
+        return
+            rewardPerTokenStored +
+            (rewardRate() * (block.timestamp - updatedRewardsAt) * 1e18) /
+            totalAssetsStaked;
+    }
+
+    function rewardRate() internal view returns (uint256) {
+        uint currentEpisode = (block.timestamp - episodsStartDate) /
+            episodeDuration;
+        uint lastUpdatedEpisode = (updatedRewardsAt - episodsStartDate) /
+            episodeDuration;
+        if (lastUpdatedEpisode == currentEpisode)
+            return episodeRewardRate[currentEpisode];
+
+        // Calculate transitional reward Rate
+        uint accumulatedTimestamp = updatedRewardsAt;
+        uint rewardRateAccumulator = 0;
+        for (uint i = lastUpdatedEpisode; i < currentEpisode; i++) {
+            uint prevEpisodFinishTime = (i + 1) *
+                episodeDuration +
+                episodsStartDate;
+            rewardRateAccumulator +=
+                (prevEpisodFinishTime - accumulatedTimestamp) *
+                episodeRewardRate[i];
+            accumulatedTimestamp = prevEpisodFinishTime;
+        }
+        rewardRateAccumulator +=
+            (block.timestamp - accumulatedTimestamp) *
+            episodeRewardRate[currentEpisode];
+
+        return rewardRateAccumulator / (block.timestamp - updatedRewardsAt);
+    }
+
+    function earned(address _account) public view returns (uint256) {
+        return
+            (((addressAssets[_account].extendedAmount / SHARED_K) *
+                (rewardPerToken() - userRewardPerTokenPaid[_account])) / 1e18) +
+            rewards[_account];
     }
 
     constructor() payable {
@@ -45,8 +116,9 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         // minTimeStake = 1 weeks;
         // Keep it simple for test purposes
         minTimeStake = 0;
-        // TODO calculate a better math
-        SHARED_K = 100000 * 1e18; // initial koefficient * precision
+        SHARED_K = 1 * 1e18; // initial koefficient * precision
+        episodeDuration = 91 days;
+        episodsStartDate = block.timestamp;
     }
 
     function _authorizeUpgrade(
@@ -98,20 +170,58 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
                 block.timestamp,
             "Funds are timelocked."
         );
-
-        uint withdrawAmount = addressAssets[msg.sender].amount / SHARED_K;
+        _updateReward(msg.sender);
+        uint withdrawAmount = addressAssets[msg.sender].extendedAmount /
+            SHARED_K;
         totalAssetsStaked -= withdrawAmount;
+        uint forcedUnstaked = addressForcedUnstaked[msg.sender];
         delete addressAssets[msg.sender];
-        poolAsset.transfer(msg.sender, withdrawAmount);
+        delete addressForcedUnstaked[msg.sender];
+
+        poolAsset.transfer(msg.sender, withdrawAmount + forcedUnstaked);
         return true;
+    }
+
+    // Temporary solution to unstake funds with finished stake period in a forced way.
+    // It might be done by bot to decrease a potential risk of big unstake in a case of claim event.
+    // The mature approach will have auto-update feature with unstake scheduling.
+    function forceUnstake(address[] memory toUnstakeAddrs) external {
+        for (uint i = 0; i < toUnstakeAddrs.length; i++) {
+            require(
+                addressAssets[toUnstakeAddrs[i]].startDate + minTimeStake <
+                    block.timestamp,
+                "Funds are timelocked."
+            );
+            _updateReward(toUnstakeAddrs[i]);
+            uint unstakeAmount = addressAssets[toUnstakeAddrs[i]]
+                .extendedAmount / SHARED_K;
+            totalAssetsStaked -= unstakeAmount;
+            delete addressAssets[toUnstakeAddrs[i]];
+            addressForcedUnstaked[toUnstakeAddrs[i]] += unstakeAmount;
+        }
     }
 
     function rewardPool(uint amount) external returns (bool completed) {
         poolAsset.transferFrom(msg.sender, address(this), amount);
-        SHARED_K =
-            (SHARED_K * totalAssetsStaked) /
-            (totalAssetsStaked + amount);
-        totalAssetsStaked += amount;
+        _updateReward(address(0));
+        uint currentEpisode = (block.timestamp - episodsStartDate) /
+            episodeDuration;
+        uint currentEpisodeFinishTime = (currentEpisode + 1) *
+            episodeDuration +
+            episodsStartDate;
+
+        // Full reward duration is 1 year + time to finish current episode.
+        uint rewardRatePerEpisode = amount / (episodeDuration * 4);
+        episodeRewardRate[currentEpisode] += rewardRatePerEpisode;
+        episodeRewardRate[currentEpisode + 1] += rewardRatePerEpisode;
+        episodeRewardRate[currentEpisode + 2] += rewardRatePerEpisode;
+        episodeRewardRate[currentEpisode + 3] += rewardRatePerEpisode;
+        // It is needed to add leftovers awards
+        episodeRewardRate[currentEpisode + 4] +=
+            (rewardRatePerEpisode *
+                (episodeDuration -
+                    (currentEpisodeFinishTime - updatedRewardsAt))) /
+            episodeDuration;
         return true;
     }
 
@@ -119,6 +229,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         address receiver,
         uint amount
     ) external onlyClaimer returns (bool completed) {
+        _updateReward(address(0));
         SHARED_K =
             (SHARED_K * totalAssetsStaked) /
             (totalAssetsStaked - amount);

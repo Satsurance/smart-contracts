@@ -11,7 +11,6 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     // State variables
     IERC20 public daoToken;
     IPool public insurancePool;
-    uint256 public minimumStake;
     uint256 public votingPeriod;
 
     struct Claim {
@@ -70,7 +69,6 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     function initialize(
         address _daoToken,
         address _insurancePool,
-        uint256 _minimumStake,
         uint256 _votingPeriod
     ) public initializer {
         __Ownable_init(msg.sender);
@@ -78,7 +76,6 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
         daoToken = IERC20(_daoToken);
         insurancePool = IPool(_insurancePool);
-        minimumStake = _minimumStake;
         votingPeriod = _votingPeriod;
     }
 
@@ -104,7 +101,6 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
     // Stake DAO tokens to participate in voting
     function stake(uint256 _amount) external {
-        require(_amount >= minimumStake, "Amount below minimum stake");
         require(
             daoToken.transferFrom(msg.sender, address(this), _amount),
             "Transfer failed"
@@ -155,10 +151,6 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         string calldata _description,
         uint256 _amount
     ) external {
-        require(
-            stakes[msg.sender].currentAmount >= minimumStake,
-            "Must have minimum stake"
-        );
         require(_receiver != address(0), "Invalid receiver address");
 
         uint256 claimId = claimCounter++;
