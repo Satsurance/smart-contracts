@@ -7,12 +7,9 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeab
 
 struct PoolStake {
     uint startDate;
+    uint minTimeStake;
     uint extendedAmount;
     uint initialAmount;
-}
-
-struct stakingEpsisode {
-    uint rewardRate;
 }
 
 contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
@@ -20,9 +17,9 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
     address public claimer;
     IERC20 public poolAsset;
     uint public SHARED_K;
-    uint public minTimeStake;
 
     uint public totalAssetsStaked;
+    mapping(uint256 => bool) public possibleMinStakeTimes;
     mapping(address => PoolStake) public addressAssets;
     // Temporary solution
     mapping(address => uint) public addressForcedUnstaked;
@@ -36,6 +33,50 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
     uint256 public rewardPerTokenStored;
     mapping(address => uint256) public userRewardPerTokenPaid;
     mapping(address => uint256) public rewards;
+
+    constructor() payable {
+        _disableInitializers();
+    }
+
+    function initialize(
+        address _governor,
+        address _poolAsset,
+        address _owner,
+        address _claimer
+    ) public initializer {
+        __Ownable_init(_owner);
+
+        governor = _governor;
+        claimer = _claimer;
+        poolAsset = IERC20(_poolAsset);
+        totalAssetsStaked = 0;
+        // This one is for tests
+        possibleMinStakeTimes[0] = true;
+        possibleMinStakeTimes[60 * 60 * 24 * 90] = true;
+        possibleMinStakeTimes[60 * 60 * 24 * 180] = true;
+        possibleMinStakeTimes[60 * 60 * 24 * 365] = true;
+        SHARED_K = 1 * 1e18; // initial koefficient * precision
+        episodeDuration = 91 days;
+        episodsStartDate = block.timestamp;
+    }
+
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal virtual override(UUPSUpgradeable) onlyOwner {}
+
+    function updateContractLogic(
+        address newImplementation,
+        bytes memory data
+    ) external {
+        require(msg.sender == governor, "not authorized update call.");
+        upgradeToAndCall(newImplementation, data);
+    }
+
+    function updateClaimer(address newClaimer) external {
+        require(msg.sender == governor, "not authorized update call.");
+        require(newClaimer != address(0), "New claimer cannot be zero address");
+        claimer = newClaimer;
+    }
 
     modifier onlyClaimer() {
         require(msg.sender == claimer, "Caller is not the claimer");
@@ -97,66 +138,33 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
             rewards[_account];
     }
 
-    constructor() payable {
-        _disableInitializers();
-    }
-
-    function initialize(
-        address _governor,
-        address _poolAsset,
-        address _owner,
-        address _claimer
-    ) public initializer {
-        __Ownable_init(_owner);
-
-        governor = _governor;
-        claimer = _claimer;
-        poolAsset = IERC20(_poolAsset);
-        totalAssetsStaked = 0;
-        // minTimeStake = 1 weeks;
-        // Keep it simple for test purposes
-        minTimeStake = 0;
-        SHARED_K = 1 * 1e18; // initial koefficient * precision
-        episodeDuration = 91 days;
-        episodsStartDate = block.timestamp;
-    }
-
-    function _authorizeUpgrade(
-        address newImplementation
-    ) internal virtual override(UUPSUpgradeable) onlyOwner {}
-
-    function updateContractLogic(
-        address newImplementation,
-        bytes memory data
-    ) external {
-        require(msg.sender == governor, "not authorized update call.");
-        upgradeToAndCall(newImplementation, data);
-    }
-
-    function updateClaimer(address newClaimer) external {
-        require(msg.sender == governor, "not authorized update call.");
-        require(newClaimer != address(0), "New claimer cannot be zero address");
-        claimer = newClaimer;
-    }
-
     function getPoolPosition(
         address account
     ) external view returns (PoolStake memory position) {
         return addressAssets[account];
     }
 
-    function joinPool(uint amount) external returns (bool completed) {
+    function joinPool(
+        uint _amount,
+        uint _minTimeStake
+    ) external returns (bool completed) {
         require(
             addressAssets[msg.sender].startDate == 0,
             "User has already joined the pool."
         );
-        poolAsset.transferFrom(msg.sender, address(this), amount);
+        require(
+            possibleMinStakeTimes[_minTimeStake],
+            "Not valid minimum time staking option."
+        );
+        poolAsset.transferFrom(msg.sender, address(this), _amount);
+        _updateReward(address(0));
         addressAssets[msg.sender] = PoolStake(
             block.timestamp,
-            amount * SHARED_K,
-            amount
+            _amount * SHARED_K,
+            _amount,
+            _minTimeStake
         );
-        totalAssetsStaked += amount;
+        totalAssetsStaked += _amount;
         return true;
     }
 
@@ -166,7 +174,8 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
             "User hasn't joined the pool."
         );
         require(
-            addressAssets[msg.sender].startDate + minTimeStake <
+            addressAssets[msg.sender].startDate +
+                addressAssets[msg.sender].minTimeStake <
                 block.timestamp,
             "Funds are timelocked."
         );
@@ -188,7 +197,8 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
     function forceUnstake(address[] memory toUnstakeAddrs) external {
         for (uint i = 0; i < toUnstakeAddrs.length; i++) {
             require(
-                addressAssets[toUnstakeAddrs[i]].startDate + minTimeStake <
+                addressAssets[toUnstakeAddrs[i]].startDate +
+                    addressAssets[msg.sender].minTimeStake <
                     block.timestamp,
                 "Funds are timelocked."
             );
