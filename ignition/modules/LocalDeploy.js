@@ -9,7 +9,6 @@ module.exports = buildModule("LocalDeploy", (m) => {
   const { btcToken, sursToken, insurancePool, governor_c, timelock } =
     m.useModule(InsuranceSetup);
 
-  m.call(insurancePool, "transferOwnership", [POOL_OWNER_ADDR]);
   m.call(
     btcToken,
     "transfer",
@@ -23,16 +22,30 @@ module.exports = buildModule("LocalDeploy", (m) => {
     { id: "transfer2Owner" }
   );
 
-  const send1 = m.send(
+  m.call(
+    sursToken,
+    "transfer",
+    [BIG_STAKER_ADDR, ethers.parseUnits("200", "ether").toString()],
+    { id: "transferSurs2Staker" }
+  );
+
+  m.call(
+    sursToken,
+    "transfer",
+    [POOL_OWNER_ADDR, ethers.parseUnits("200", "ether").toString()],
+    { id: "transferSurs2Owner" }
+  );
+
+  const send1btc = m.send(
     "Send2Staker",
     BIG_STAKER_ADDR,
     BigInt(ethers.parseUnits("10", "ether").toString())
   );
-  const send2 = m.send(
+  const send2btc = m.send(
     "Send2Owner",
     POOL_OWNER_ADDR,
     BigInt(ethers.parseUnits("10", "ether").toString())
   );
 
-  return { send1, send2 };
+  return { send1btc, send2btc };
 });

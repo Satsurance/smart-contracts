@@ -10,8 +10,7 @@ const PROPOSER_ROLE_ID = ethers.solidityPackedKeccak256(
 );
 
 // Constants for Claimer
-const MINIMUM_STAKE = ethers.parseUnits("100", "ether").toString(); // 100 SURS tokens
-const VOTING_PERIOD = 7 * 24 * 60 * 60; // 1 week in seconds
+const VOTING_PERIOD = 1 * 60 * 60; // 1 hour for test purposes
 
 exports.InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   const initialSupply = m.getParameter("initialSupply", INITIAL_SUPPLY);
@@ -71,7 +70,6 @@ exports.InsuranceSetup = buildModule("InsuranceContracts", (m) => {
       m.encodeFunctionCall(claimerLogic, "initialize", [
         sursTokenProxy,
         insurancePoolProxy,
-        MINIMUM_STAKE,
         VOTING_PERIOD,
       ]),
     ],
@@ -100,4 +98,4 @@ exports.InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   };
 });
 
-// module.exports = exports.InsuranceSetup;
+module.exports = exports.InsuranceSetup;
