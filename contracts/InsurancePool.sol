@@ -58,6 +58,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         SHARED_K = 1 * 1e18; // initial koefficient * precision
         episodeDuration = 91 days;
         episodsStartDate = block.timestamp;
+        updatedRewardsAt = block.timestamp;
     }
 
     function _authorizeUpgrade(
@@ -104,7 +105,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
             totalAssetsStaked;
     }
 
-    function rewardRate() internal view returns (uint256) {
+    function rewardRate() public view returns (uint256) {
         uint currentEpisode = (block.timestamp - episodsStartDate) /
             episodeDuration;
         uint lastUpdatedEpisode = (updatedRewardsAt - episodsStartDate) /
@@ -157,12 +158,12 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
             "Not valid minimum time staking option."
         );
         poolAsset.transferFrom(msg.sender, address(this), _amount);
-        _updateReward(address(0));
+        _updateReward(address(msg.sender));
         addressAssets[msg.sender] = PoolStake(
             block.timestamp,
+            _minTimeStake,
             _amount * SHARED_K,
-            _amount,
-            _minTimeStake
+            _amount
         );
         totalAssetsStaked += _amount;
         return true;
@@ -180,14 +181,18 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
             "Funds are timelocked."
         );
         _updateReward(msg.sender);
-        uint withdrawAmount = addressAssets[msg.sender].extendedAmount /
-            SHARED_K;
-        totalAssetsStaked -= withdrawAmount;
-        uint forcedUnstaked = addressForcedUnstaked[msg.sender];
-        delete addressAssets[msg.sender];
-        delete addressForcedUnstaked[msg.sender];
 
-        poolAsset.transfer(msg.sender, withdrawAmount + forcedUnstaked);
+        uint withdrawAmount = ((addressAssets[msg.sender].extendedAmount /
+            SHARED_K) & 0xffffffffffffffffffffffffffffff00) + // Remove small overcalculations
+            addressForcedUnstaked[msg.sender];
+
+        totalAssetsStaked -= withdrawAmount;
+        withdrawAmount += rewards[msg.sender];
+        delete addressAssets[msg.sender];
+        addressForcedUnstaked[msg.sender] = 0;
+        rewards[msg.sender] = 0;
+
+        poolAsset.transfer(msg.sender, withdrawAmount);
         return true;
     }
 
@@ -230,7 +235,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         episodeRewardRate[currentEpisode + 4] +=
             (rewardRatePerEpisode *
                 (episodeDuration -
-                    (currentEpisodeFinishTime - updatedRewardsAt))) /
+                    (currentEpisodeFinishTime - block.timestamp))) /
             episodeDuration;
         return true;
     }

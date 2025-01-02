@@ -7,6 +7,9 @@ const { expect } = require("chai");
 
 const { InsuranceSetup } = require("../ignition/modules/Insurance.js");
 
+const errorMask = BigInt("0xffffffffffffffffffffffffffffff00");
+const allowedUnderstaking = ethers.parseUnits("0.00000001", "ether"); // 0.1 cent if bitcoin costs 100k
+
 describe("Insurance", async function () {
   // We define a fixture to reuse the same setup in every test.
   // We use loadFixture to run this setup once, snapshot that state,
@@ -29,7 +32,7 @@ describe("Insurance", async function () {
 
       // Init check
       let init_k = await insurancePool.SHARED_K();
-      expect(init_k).to.equal(ethers.parseUnits("100000", "ether").toString());
+      expect(init_k).to.equal(ethers.parseUnits("1", "ether").toString());
 
       // Make a position
       await btcToken.approve(
@@ -37,23 +40,28 @@ describe("Insurance", async function () {
         ethers.parseUnits("2000", "ether").toString()
       );
       await insurancePool.joinPool(
-        ethers.parseUnits("100", "ether").toString()
+        ethers.parseUnits("100", "ether").toString(),
+        0
       );
       const init_position = await insurancePool.getPoolPosition(ownerAccount);
-      expect(init_position[2]).to.equal(
+      expect(init_position[3]).to.equal(
         ethers.parseUnits("100", "ether").toString()
       );
-      expect(init_position[1]).to.equal(
+      expect(init_position[2]).to.equal(
         init_k * BigInt(ethers.parseUnits("100", "ether").toString())
       );
 
       // Check reward logic
-      await insurancePool.rewardPool(
-        ethers.parseUnits("1", "ether").toString()
-      );
-      let new_k = await insurancePool.SHARED_K();
-      expect(init_position[1] / new_k).to.equal(
-        ethers.parseUnits("101", "ether").toString()
+      const minimumRewardAmount = ethers.parseUnits("0.0000001", "ether"); // 1 cent reward for 100k btc
+      await insurancePool.rewardPool(minimumRewardAmount.toString());
+      // It is required some time to have all the rewards distributed.
+      await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 500);
+      const earnedAmount = await insurancePool.earned(ownerAccount);
+
+      // There are some precision errors
+      expect(earnedAmount).to.approximately(
+        minimumRewardAmount,
+        allowedUnderstaking
       );
 
       // Setup for claim testing
@@ -80,12 +88,12 @@ describe("Insurance", async function () {
 
       // Check slashing effect
       new_k = await insurancePool.SHARED_K();
-      expect(init_position[1] / new_k).to.equal(
-        ethers.parseUnits("98", "ether").toString()
+      expect((init_position[2] / new_k) & errorMask).to.equal(
+        ethers.parseUnits("97", "ether").toString()
       );
     });
 
-    it("test math on bigger scale", async () => {
+    it("test two stakers right proportion", async () => {
       const {
         btcToken,
         sursToken,
@@ -98,7 +106,7 @@ describe("Insurance", async function () {
 
       // Init check
       let init_k = await insurancePool.SHARED_K();
-      expect(init_k).to.equal(ethers.parseUnits("100000", "ether").toString());
+      expect(init_k).to.equal(ethers.parseUnits("1", "ether").toString());
 
       // Make a position
       await btcToken.transfer(
@@ -113,18 +121,19 @@ describe("Insurance", async function () {
         .connect(otherAccount)
         .approve(insurancePool, ethers.parseUnits("1", "ether").toString());
       await insurancePool.joinPool(
-        ethers.parseUnits("21000000", "ether").toString()
+        ethers.parseUnits("21000000", "ether").toString(),
+        0
       );
       await insurancePool
         .connect(otherAccount)
-        .joinPool(ethers.parseUnits("0.01", "ether").toString());
+        .joinPool(ethers.parseUnits("0.01", "ether").toString(), 0);
 
       const position_big = await insurancePool.getPoolPosition(ownerAccount);
       const position_small = await insurancePool.getPoolPosition(otherAccount);
-      expect(position_big[2]).to.equal(
+      expect(position_big[3]).to.equal(
         ethers.parseUnits("21000000", "ether").toString()
       );
-      expect(position_small[2]).to.equal(
+      expect(position_small[3]).to.equal(
         ethers.parseUnits("0.01", "ether").toString()
       );
 
@@ -132,16 +141,91 @@ describe("Insurance", async function () {
       await insurancePool.rewardPool(
         ethers.parseUnits("1", "ether").toString()
       );
-      let new_k = await insurancePool.SHARED_K();
-      expect(position_big[1] / new_k).to.equal(
-        ethers.parseUnits("21000000.999999999523809606", "ether").toString()
+
+      await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 600);
+      const earnedAmountBig = await insurancePool.earned(ownerAccount);
+      const earnedAmountSmall = await insurancePool.earned(otherAccount);
+
+      expect(earnedAmountBig).to.approximately(
+        ethers.parseUnits("0.999999999523809606", "ether").toString(),
+        allowedUnderstaking
       );
-      expect(position_small[1] / new_k).to.equal(
-        ethers.parseUnits("0.010000000476190475", "ether").toString()
+      expect(earnedAmountSmall).to.equal(
+        ethers.parseUnits("0.000000000476190475", "ether").toString()
       );
-      expect(position_big[1] / new_k + position_small[1] / new_k).to.eq(
-        ethers.parseUnits("21000001.010000000000000081", "ether").toString()
-      ); // TODO make precision limits
+      expect(earnedAmountBig + earnedAmountSmall).to.approximately(
+        ethers.parseUnits("1", "ether").toString(),
+        allowedUnderstaking
+      );
+    });
+
+    it("test two stakers right proportion different rewards time.", async () => {
+      const {
+        btcToken,
+        sursToken,
+        insurancePool,
+        governor_c,
+        timelock,
+        claimer,
+      } = await loadFixture(basicFixture);
+      const [ownerAccount, otherAccount] = await ethers.getSigners();
+
+      // Init check
+      let init_k = await insurancePool.SHARED_K();
+      expect(init_k).to.equal(ethers.parseUnits("1", "ether").toString());
+
+      // Make a position
+      await btcToken.transfer(
+        otherAccount,
+        ethers.parseUnits("0.01", "ether").toString()
+      );
+      await btcToken.approve(
+        insurancePool,
+        ethers.parseUnits("51000000", "ether").toString()
+      );
+      await btcToken
+        .connect(otherAccount)
+        .approve(insurancePool, ethers.parseUnits("1", "ether").toString());
+      await insurancePool.joinPool(
+        ethers.parseUnits("21000000", "ether").toString(),
+        0
+      );
+      await insurancePool
+        .connect(otherAccount)
+        .joinPool(ethers.parseUnits("0.01", "ether").toString(), 0);
+
+      const position_big = await insurancePool.getPoolPosition(ownerAccount);
+      const position_small = await insurancePool.getPoolPosition(otherAccount);
+      expect(position_big[3]).to.equal(
+        ethers.parseUnits("21000000", "ether").toString()
+      );
+      expect(position_small[3]).to.equal(
+        ethers.parseUnits("0.01", "ether").toString()
+      );
+
+      for (let i = 0; i < 10; i++) {
+        await insurancePool.rewardPool(
+          ethers.parseUnits("0.1", "ether").toString()
+        );
+        await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 20);
+      }
+
+      await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 400);
+
+      const earnedAmountBig = await insurancePool.earned(ownerAccount);
+      const earnedAmountSmall = await insurancePool.earned(otherAccount);
+
+      expect(earnedAmountBig).to.approximately(
+        ethers.parseUnits("0.999999999523809606", "ether").toString(),
+        allowedUnderstaking
+      );
+      expect(earnedAmountSmall).to.equal(
+        ethers.parseUnits("0.000000000476190475", "ether").toString()
+      );
+      expect(earnedAmountBig + earnedAmountSmall).to.approximately(
+        ethers.parseUnits("1", "ether").toString(),
+        allowedUnderstaking
+      );
     });
   });
 
@@ -158,7 +242,8 @@ describe("Insurance", async function () {
         ethers.parseUnits("1000", "ether").toString()
       );
       await insurancePool.joinPool(
-        ethers.parseUnits("100", "ether").toString()
+        ethers.parseUnits("100", "ether").toString(),
+        0
       );
 
       // Setup voting stakes
