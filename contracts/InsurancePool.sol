@@ -145,6 +145,15 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         return addressAssets[account];
     }
 
+    function getReward() external {
+        _updateReward(address(msg.sender));
+        uint256 reward = rewards[msg.sender];
+        if (reward > 0) {
+            rewards[msg.sender] = 0;
+            poolAsset.transfer(msg.sender, reward);
+        }
+    }
+
     function joinPool(
         uint _amount,
         uint _minTimeStake
