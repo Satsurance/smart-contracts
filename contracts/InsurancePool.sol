@@ -8,7 +8,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeab
 struct PoolStake {
     uint startDate;
     uint minTimeStake;
-    uint extendedAmount;
+    uint shares;
     uint initialAmount;
 }
 
@@ -16,9 +16,9 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
     address public governor;
     address public claimer;
     IERC20 public poolAsset;
-    uint public SHARED_K;
 
     uint public totalAssetsStaked;
+    uint public totalPoolShares;
     mapping(uint256 => bool) public possibleMinStakeTimes;
     mapping(address => PoolStake) public addressAssets;
     // Temporary solution
@@ -30,7 +30,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
     mapping(uint => uint) public episodeRewardRate;
 
     uint public updatedRewardsAt;
-    uint256 public rewardPerTokenStored;
+    uint256 public rewardPerShareStored;
     mapping(address => uint256) public userRewardPerTokenPaid;
     mapping(address => uint256) public rewards;
 
@@ -50,12 +50,12 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         claimer = _claimer;
         poolAsset = IERC20(_poolAsset);
         totalAssetsStaked = 0;
+        totalPoolShares = 0;
         // This one is for tests
         possibleMinStakeTimes[0] = true;
         possibleMinStakeTimes[60 * 60 * 24 * 90] = true;
         possibleMinStakeTimes[60 * 60 * 24 * 180] = true;
         possibleMinStakeTimes[60 * 60 * 24 * 365] = true;
-        SHARED_K = 1 * 1e18; // initial koefficient * precision
         episodeDuration = 91 days;
         episodsStartDate = block.timestamp;
         updatedRewardsAt = block.timestamp;
@@ -85,24 +85,24 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
     }
 
     function _updateReward(address _account) internal {
-        rewardPerTokenStored = rewardPerToken();
+        rewardPerShareStored = rewardPerToken();
         updatedRewardsAt = block.timestamp;
 
         if (_account != address(0)) {
             rewards[_account] = earned(_account);
-            userRewardPerTokenPaid[_account] = rewardPerTokenStored;
+            userRewardPerTokenPaid[_account] = rewardPerShareStored;
         }
     }
 
     function rewardPerToken() public view returns (uint256) {
         if (totalAssetsStaked == 0) {
-            return rewardPerTokenStored;
+            return rewardPerShareStored;
         }
 
         return
-            rewardPerTokenStored +
+            rewardPerShareStored +
             (rewardRate() * (block.timestamp - updatedRewardsAt) * 1e18) /
-            totalAssetsStaked;
+            totalPoolShares;
     }
 
     function rewardRate() public view returns (uint256) {
@@ -134,7 +134,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
 
     function earned(address _account) public view returns (uint256) {
         return
-            (((addressAssets[_account].extendedAmount / SHARED_K) *
+            (((addressAssets[_account].shares) *
                 (rewardPerToken() - userRewardPerTokenPaid[_account])) / 1e18) +
             rewards[_account];
     }
@@ -168,13 +168,21 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         );
         poolAsset.transferFrom(msg.sender, address(this), _amount);
         _updateReward(address(msg.sender));
+
+        uint newShares;
+        if (totalPoolShares == 0 || totalAssetsStaked == 0) {
+            newShares = _amount;
+        } else {
+            newShares = (_amount * totalPoolShares) / totalAssetsStaked;
+        }
         addressAssets[msg.sender] = PoolStake(
             block.timestamp,
             _minTimeStake,
-            _amount * SHARED_K,
+            newShares,
             _amount
         );
         totalAssetsStaked += _amount;
+        totalPoolShares += newShares;
         return true;
     }
 
@@ -191,11 +199,13 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         );
         _updateReward(msg.sender);
 
-        uint withdrawAmount = ((addressAssets[msg.sender].extendedAmount /
-            SHARED_K) & 0xffffffffffffffffffffffffffffff00) + // Remove small overcalculations
+        uint withdrawAmount = (addressAssets[msg.sender].shares *
+            totalAssetsStaked) /
+            totalPoolShares +
             addressForcedUnstaked[msg.sender];
 
         totalAssetsStaked -= withdrawAmount;
+        totalPoolShares -= addressAssets[msg.sender].shares;
         withdrawAmount += rewards[msg.sender];
         delete addressAssets[msg.sender];
         addressForcedUnstaked[msg.sender] = 0;
@@ -217,9 +227,10 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
                 "Funds are timelocked."
             );
             _updateReward(toUnstakeAddrs[i]);
-            uint unstakeAmount = addressAssets[toUnstakeAddrs[i]]
-                .extendedAmount / SHARED_K;
+            uint unstakeAmount = (addressAssets[toUnstakeAddrs[i]].shares *
+                totalAssetsStaked) / totalPoolShares;
             totalAssetsStaked -= unstakeAmount;
+            totalPoolShares -= addressAssets[toUnstakeAddrs[i]].shares;
             delete addressAssets[toUnstakeAddrs[i]];
             addressForcedUnstaked[toUnstakeAddrs[i]] += unstakeAmount;
         }
@@ -254,9 +265,6 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         uint amount
     ) external onlyClaimer returns (bool completed) {
         _updateReward(address(0));
-        SHARED_K =
-            (SHARED_K * totalAssetsStaked) /
-            (totalAssetsStaked - amount);
         totalAssetsStaked -= amount;
         poolAsset.transfer(receiver, amount);
         return true;
