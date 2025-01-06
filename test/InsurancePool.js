@@ -6,7 +6,7 @@ const { expect } = require("chai");
 
 const { InsuranceSetup } = require("../ignition/modules/Insurance.js");
 
-const allowedUnderstaking = ethers.parseUnits("0.00000001", "ether"); // 0.1 cent if bitcoin costs 100k
+const allowedUnderstaking = ethers.parseUnits("0.000000001", "ether"); // 0.01 cent if bitcoin costs 100k
 
 describe("Insurance", async function () {
   // We define a fixture to reuse the same setup in every test.
