@@ -5,6 +5,32 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 
+
+event PoolJoined(
+    address indexed user,
+    uint depositAmount,
+    uint sharesReceived,
+    uint minStakeTime,
+    uint totalPoolSharesAfter,
+    uint totalAssetsAfter
+);
+
+event PoolQuitted(
+    address indexed user,
+    uint withdrawnAmount,
+    uint sharesRedeemed,
+    uint totalPoolSharesAfter,
+    uint totalAssetsAfter
+);
+
+event ClaimExecuted(
+    address indexed claimer,
+    address indexed receiver,
+    uint claimAmount,
+    uint totalAssetsAfter,
+    uint timestamp
+);
+
 struct PoolStake {
     uint startDate;
     uint minTimeStake;
@@ -13,13 +39,15 @@ struct PoolStake {
 }
 
 contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
+
+
     address public governor;
     address public claimer;
     IERC20 public poolAsset;
 
     uint public totalAssetsStaked;
     uint public totalPoolShares;
-    mapping(uint256 => bool) public possibleMinStakeTimes;
+    mapping(uint => bool) public possibleMinStakeTimes;
     mapping(address => PoolStake) public addressAssets;
     // Temporary solution
     mapping(address => uint) public addressForcedUnstaked;
@@ -30,9 +58,9 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
     mapping(uint => uint) public episodeRewardRate;
 
     uint public updatedRewardsAt;
-    uint256 public rewardPerShareStored;
-    mapping(address => uint256) public userRewardPerTokenPaid;
-    mapping(address => uint256) public rewards;
+    uint public rewardPerShareStored;
+    mapping(address => uint) public userRewardPerTokenPaid;
+    mapping(address => uint) public rewards;
 
     constructor() payable {
         _disableInitializers();
@@ -94,7 +122,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         }
     }
 
-    function rewardPerToken() public view returns (uint256) {
+    function rewardPerToken() public view returns (uint) {
         if (totalAssetsStaked == 0) {
             return rewardPerShareStored;
         }
@@ -105,7 +133,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
             totalPoolShares;
     }
 
-    function rewardRate() public view returns (uint256) {
+    function rewardRate() public view returns (uint) {
         uint currentEpisode = (block.timestamp - episodsStartDate) /
             episodeDuration;
         uint lastUpdatedEpisode = (updatedRewardsAt - episodsStartDate) /
@@ -132,7 +160,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         return rewardRateAccumulator / (block.timestamp - updatedRewardsAt);
     }
 
-    function earned(address _account) public view returns (uint256) {
+    function earned(address _account) public view returns (uint) {
         return
             (((addressAssets[_account].shares) *
                 (rewardPerToken() - userRewardPerTokenPaid[_account])) / 1e18) +
@@ -147,7 +175,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
 
     function getReward() external {
         _updateReward(address(msg.sender));
-        uint256 reward = rewards[msg.sender];
+        uint reward = rewards[msg.sender];
         if (reward > 0) {
             rewards[msg.sender] = 0;
             poolAsset.transfer(msg.sender, reward);
@@ -183,6 +211,15 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         );
         totalAssetsStaked += _amount;
         totalPoolShares += newShares;
+
+        emit PoolJoined(
+            msg.sender,
+            _amount,
+            newShares,
+            _minTimeStake,
+            totalPoolShares,
+            totalAssetsStaked
+        );
         return true;
     }
 
@@ -204,20 +241,27 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
             totalPoolShares +
             addressForcedUnstaked[msg.sender];
 
+        uint sharesToRedeem = addressAssets[msg.sender].shares;
+
         totalAssetsStaked -= withdrawAmount;
-        totalPoolShares -= addressAssets[msg.sender].shares;
+        totalPoolShares -= sharesToRedeem;
         withdrawAmount += rewards[msg.sender];
         delete addressAssets[msg.sender];
         addressForcedUnstaked[msg.sender] = 0;
         rewards[msg.sender] = 0;
 
         poolAsset.transfer(msg.sender, withdrawAmount);
+
+        emit PoolQuitted(
+            msg.sender,
+            withdrawAmount,
+            sharesToRedeem,
+            totalPoolShares,
+            totalAssetsStaked
+        );
         return true;
     }
 
-    // Temporary solution to unstake funds with finished stake period in a forced way.
-    // It might be done by bot to decrease a potential risk of big unstake in a case of claim event.
-    // The mature approach will have auto-update feature with unstake scheduling.
     function forceUnstake(address[] memory toUnstakeAddrs) external {
         for (uint i = 0; i < toUnstakeAddrs.length; i++) {
             require(
@@ -267,6 +311,14 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         _updateReward(address(0));
         totalAssetsStaked -= amount;
         poolAsset.transfer(receiver, amount);
+
+        emit ClaimExecuted(
+            msg.sender,
+            receiver,
+            amount,
+            totalAssetsStaked,
+            block.timestamp
+        );
         return true;
     }
 }
