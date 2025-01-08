@@ -1,8 +1,8 @@
 const { buildModule } = require("@nomicfoundation/hardhat-ignition/modules");
 const { ethers } = require("ethers");
 
-const INITIAL_SUPPLY = ethers.parseUnits("2000", "ether").toString();
-const WBTC_INITIAL_SUPPLY = ethers.parseUnits("51000000", "ether").toString();
+const INITIAL_SUPPLY = ethers.parseUnits("20000000000", "ether").toString();
+const WBTC_INITIAL_SUPPLY = ethers.parseUnits("22000000", "ether").toString();
 const MIN_TIMELOCK_DELAY = 24 * 60 * 60;
 const PROPOSER_ROLE_ID = ethers.solidityPackedKeccak256(
   ["string"],

@@ -10,7 +10,7 @@ module.exports = buildModule("LocalDeploy", (m) => {
     ethers.parseUnits("20000", "ether").toString(),
   ]);
   m.call(insurancePool, "rewardPool", [
-    ethers.parseUnits("1", "ether").toString(),
+    ethers.parseUnits("20", "ether").toString(),
   ]);
 
   return { send1btc, send2btc };

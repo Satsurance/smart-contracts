@@ -84,7 +84,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         possibleMinStakeTimes[60 * 60 * 24 * 90] = true;
         possibleMinStakeTimes[60 * 60 * 24 * 180] = true;
         possibleMinStakeTimes[60 * 60 * 24 * 365] = true;
-        episodeDuration = 91 days;
+        episodeDuration = 90 days;
         episodsStartDate = block.timestamp;
         updatedRewardsAt = block.timestamp;
     }
