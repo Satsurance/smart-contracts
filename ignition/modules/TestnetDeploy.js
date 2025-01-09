@@ -13,5 +13,5 @@ module.exports = buildModule("LocalDeploy", (m) => {
     ethers.parseUnits("20", "ether").toString(),
   ]);
 
-  return { send1btc, send2btc };
+  return {};
 });
