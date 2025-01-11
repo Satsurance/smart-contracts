@@ -227,7 +227,7 @@ describe("Insurance", async function () {
         await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 20);
       }
 
-      await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 400);
+      await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 500);
 
       const earnedAmountBig = await insurancePool.earned(ownerAccount);
       const earnedAmountSmall = await insurancePool.earned(otherAccount);
