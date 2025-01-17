@@ -9,6 +9,9 @@ const FAUCET_ADDR = "0x7F21b4286ed33a09dD44e3068b524e759511dA76";
 module.exports = buildModule("LocalDeploy", (m) => {
   const { btcToken, sursToken, insurancePool, governor_c, timelock } =
     m.useModule(InsuranceSetup);
+
+  let coverPurchaser = m.contract("CoverPurchaser", [btcToken]);
+
   m.call(btcToken, "approve", [
     insurancePool,
     ethers.parseUnits("200", "ether").toString(),
@@ -70,5 +73,5 @@ module.exports = buildModule("LocalDeploy", (m) => {
     BigInt(ethers.parseUnits("10", "ether").toString())
   );
 
-  return { send1btc, send2btc, send3btc };
+  return { coverPurchaser };
 });

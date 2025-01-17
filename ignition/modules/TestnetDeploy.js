@@ -13,5 +13,7 @@ module.exports = buildModule("LocalDeploy", (m) => {
     ethers.parseUnits("20", "ether").toString(),
   ]);
 
-  return {};
+  let coverPurchaser = m.contract("CoverPurchaser", [btcToken]);
+
+  return { coverPurchaser };
 });

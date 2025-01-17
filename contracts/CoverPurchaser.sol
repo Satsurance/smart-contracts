@@ -14,17 +14,22 @@ struct UserCover {
 // This is a not optimised contract for demo only
 contract CoverPurchaser {
     IERC20 public token;
-    uint public coverCounter;
-    mapping(address => uint[]) public userCoverIds;
-    mapping(uint => UserCover) public covers;
+    mapping(address => UserCover[]) public covers;
+
+    constructor(address _token) {
+        token = IERC20(_token);
+    }
+
+    function getUserCoversCount(address user) external view returns (uint) {
+        return covers[user].length;
+    }
 
     function getUserCovers(
         address user
     ) external view returns (UserCover[] memory) {
-        uint[] memory coverIds = userCoverIds[user];
-        UserCover[] memory userCovers = new UserCover[](coverIds.length);
-        for (uint i = 0; i < coverIds.length; i++) {
-            userCovers[i] = covers[coverIds[i]];
+        UserCover[] memory userCovers = new UserCover[](covers[user].length);
+        for (uint i = 0; i < covers[user].length; i++) {
+            userCovers[i] = covers[user][i];
         }
         return userCovers;
     }
@@ -36,13 +41,10 @@ contract CoverPurchaser {
         uint coverAmount,
         uint purchaseCost
     ) external {
-        covers[coverCounter++] = UserCover(
-            msg.sender,
-            protocol,
-            startDate,
-            endDate,
-            coverAmount
+        covers[msg.sender].push(
+            UserCover(msg.sender, protocol, startDate, endDate, coverAmount)
         );
+
         token.transferFrom(msg.sender, address(this), purchaseCost);
     }
 }
