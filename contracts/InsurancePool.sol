@@ -8,6 +8,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeab
 
 event PoolJoined(
     address indexed user,
+    uint positionId,
     uint depositAmount,
     uint sharesReceived,
     uint minStakeTime,
@@ -17,6 +18,7 @@ event PoolJoined(
 
 event PoolQuitted(
     address indexed user,
+    uint positionId,
     uint withdrawnAmount,
     uint sharesRedeemed,
     uint totalPoolSharesAfter,
@@ -36,6 +38,7 @@ struct PoolStake {
     uint minTimeStake;
     uint shares;
     uint initialAmount;
+    bool active;
 }
 
 contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
@@ -48,9 +51,17 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
     uint public totalAssetsStaked;
     uint public totalPoolShares;
     mapping(uint => bool) public possibleMinStakeTimes;
-    mapping(address => PoolStake) public addressAssets;
+
+    // User position track mappings
+    mapping(address => mapping(uint => PoolStake)) public positions;
+    mapping(address => uint) public positionCounter;
+    mapping(address => uint) public userTotalShares;
+
     // Temporary solution
-    mapping(address => uint) public addressForcedUnstaked;
+    mapping(address => uint) public addressUnstakedSchdl;
+    uint public timegapToUnstake;
+    uint public scheduledUnstakeFee;
+    uint public minimumStakeAmount;
 
     // Episodes functions
     uint public episodsStartDate;
@@ -83,10 +94,14 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         possibleMinStakeTimes[0] = true;
         possibleMinStakeTimes[60 * 60 * 24 * 90] = true;
         possibleMinStakeTimes[60 * 60 * 24 * 180] = true;
-        possibleMinStakeTimes[60 * 60 * 24 * 365] = true;
+        possibleMinStakeTimes[60 * 60 * 24 * 360] = true;
         episodeDuration = 90 days;
         episodsStartDate = block.timestamp;
         updatedRewardsAt = block.timestamp;
+        timegapToUnstake = 1 weeks;
+        // TODO choose correct values
+        scheduledUnstakeFee = 10000;
+        minimumStakeAmount = 100000000;
     }
 
     function _authorizeUpgrade(
@@ -162,15 +177,13 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
 
     function earned(address _account) public view returns (uint) {
         return
-            (((addressAssets[_account].shares) *
+            (((userTotalShares[_account]) *
                 (rewardPerToken() - userRewardPerTokenPaid[_account])) / 1e18) +
             rewards[_account];
     }
 
-    function getPoolPosition(
-        address account
-    ) external view returns (PoolStake memory position) {
-        return addressAssets[account];
+    function getPoolPosition(address account, uint positionId) external view returns (PoolStake memory position) {
+        return positions[account][positionId];
     }
 
     function getReward() external {
@@ -187,33 +200,31 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         uint _minTimeStake
     ) external returns (bool completed) {
         require(
-            addressAssets[msg.sender].startDate == 0,
-            "User has already joined the pool."
-        );
-        require(
             possibleMinStakeTimes[_minTimeStake],
             "Not valid minimum time staking option."
         );
+        require(_amount >= minimumStakeAmount, "Too small staking amount.");
+
         poolAsset.transferFrom(msg.sender, address(this), _amount);
         _updateReward(address(msg.sender));
 
-        uint newShares;
-        if (totalPoolShares == 0 || totalAssetsStaked == 0) {
-            newShares = _amount;
-        } else {
-            newShares = (_amount * totalPoolShares) / totalAssetsStaked;
-        }
-        addressAssets[msg.sender] = PoolStake(
-            block.timestamp,
-            _minTimeStake,
-            newShares,
-            _amount
-        );
-        totalAssetsStaked += _amount;
+        uint newShares = totalPoolShares == 0 ? _amount : (_amount * totalPoolShares) / totalAssetsStaked;
+        uint newPositionId = positionCounter[msg.sender]++;
+            positions[msg.sender][newPositionId] = PoolStake({
+                startDate: block.timestamp,
+                minTimeStake: _minTimeStake,
+                shares: newShares,
+                initialAmount: _amount,
+                active: true
+            });
+
+        userTotalShares[msg.sender] += newShares;
         totalPoolShares += newShares;
+        totalAssetsStaked += _amount;
 
         emit PoolJoined(
             msg.sender,
+            newPositionId,
             _amount,
             newShares,
             _minTimeStake,
@@ -223,61 +234,64 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         return true;
     }
 
-    function quitPool() external returns (bool completed) {
-        require(
-            addressAssets[msg.sender].startDate != 0,
-            "User hasn't joined the pool."
-        );
-        require(
-            addressAssets[msg.sender].startDate +
-                addressAssets[msg.sender].minTimeStake <
-                block.timestamp,
-            "Funds are timelocked."
-        );
-        _updateReward(msg.sender);
+    function quitPool(uint positionId) external returns (bool completed) {
+        uint withdrawAmount = _removePoolPosition(msg.sender, positionId);
+        poolAsset.transfer(msg.sender, withdrawAmount);
+        return true;
+    }
 
-        uint withdrawAmount = (addressAssets[msg.sender].shares *
+    function scheduledUnstake(
+        address[] memory toUnstakeAddrs, uint[] memory positionsIds, uint[] memory v, uint[] memory r, uint[] memory s
+    ) external {
+        // TODO make signed message verification
+        for(uint i = 0; i < toUnstakeAddrs.length; i++) {
+            uint withdrawAmount = _removePoolPosition(toUnstakeAddrs[i], positionsIds[i]);
+            addressUnstakedSchdl[toUnstakeAddrs[i]] += withdrawAmount - scheduledUnstakeFee;
+        }
+        // Reward unstaker for work.
+        poolAsset.transfer(msg.sender, scheduledUnstakeFee * toUnstakeAddrs.length);
+
+    }
+
+    function _removePoolPosition(address toRemove, uint positionId) internal returns(uint withdrawAmount) {
+        PoolStake memory position = positions[toRemove][positionId];
+        require(position.active, "Position inactive.");
+        require(
+            position.startDate +
+            position.minTimeStake <
+                block.timestamp,
+            "Funds are timelocked, first lock."
+        );
+        require(
+            (block.timestamp - position.startDate) % position.minTimeStake <= timegapToUnstake,
+            "Funds are timelocked, auto-restake lock.");
+        _updateReward(toRemove);
+
+
+
+        withdrawAmount = (position.shares *
             totalAssetsStaked) /
             totalPoolShares +
-            addressForcedUnstaked[msg.sender];
+            // Bonus
+            addressUnstakedSchdl[toRemove] + rewards[toRemove];
 
-        uint sharesToRedeem = addressAssets[msg.sender].shares;
+        uint sharesToRedeem = position.shares;
 
         totalAssetsStaked -= withdrawAmount;
         totalPoolShares -= sharesToRedeem;
-        withdrawAmount += rewards[msg.sender];
-        delete addressAssets[msg.sender];
-        addressForcedUnstaked[msg.sender] = 0;
-        rewards[msg.sender] = 0;
-
-        poolAsset.transfer(msg.sender, withdrawAmount);
+        userTotalShares[toRemove] -= sharesToRedeem;
+        positions[toRemove][positionId].active = false;
+        addressUnstakedSchdl[toRemove] = 0;
+        rewards[toRemove] = 0;
 
         emit PoolQuitted(
-            msg.sender,
+            toRemove,
+            positionId,
             withdrawAmount,
             sharesToRedeem,
             totalPoolShares,
             totalAssetsStaked
         );
-        return true;
-    }
-
-    function forceUnstake(address[] memory toUnstakeAddrs) external {
-        for (uint i = 0; i < toUnstakeAddrs.length; i++) {
-            require(
-                addressAssets[toUnstakeAddrs[i]].startDate +
-                    addressAssets[msg.sender].minTimeStake <
-                    block.timestamp,
-                "Funds are timelocked."
-            );
-            _updateReward(toUnstakeAddrs[i]);
-            uint unstakeAmount = (addressAssets[toUnstakeAddrs[i]].shares *
-                totalAssetsStaked) / totalPoolShares;
-            totalAssetsStaked -= unstakeAmount;
-            totalPoolShares -= addressAssets[toUnstakeAddrs[i]].shares;
-            delete addressAssets[toUnstakeAddrs[i]];
-            addressForcedUnstaked[toUnstakeAddrs[i]] += unstakeAmount;
-        }
     }
 
     function rewardPool(uint amount) external returns (bool completed) {
