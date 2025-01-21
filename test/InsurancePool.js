@@ -32,7 +32,10 @@ describe("Insurance", async function () {
         ethers.parseUnits("100", "ether").toString(),
         0
       );
-      const init_position = await insurancePool.getPoolPosition(ownerAccount);
+      const init_position = await insurancePool.getPoolPosition(
+        ownerAccount,
+        0
+      );
       const total_assets = await insurancePool.totalAssetsStaked();
       const total_shares = await insurancePool.totalPoolShares();
       expect(init_position[3]).to.equal(
@@ -156,8 +159,11 @@ describe("Insurance", async function () {
         .connect(otherAccount)
         .joinPool(ethers.parseUnits("0.01", "ether").toString(), 0);
 
-      const position_big = await insurancePool.getPoolPosition(ownerAccount);
-      const position_small = await insurancePool.getPoolPosition(otherAccount);
+      const position_big = await insurancePool.getPoolPosition(ownerAccount, 0);
+      const position_small = await insurancePool.getPoolPosition(
+        otherAccount,
+        0
+      );
       expect(position_big[3]).to.equal(
         ethers.parseUnits("21000000", "ether").toString()
       );
@@ -211,8 +217,11 @@ describe("Insurance", async function () {
         .connect(otherAccount)
         .joinPool(ethers.parseUnits("0.01", "ether").toString(), 0);
 
-      const position_big = await insurancePool.getPoolPosition(ownerAccount);
-      const position_small = await insurancePool.getPoolPosition(otherAccount);
+      const position_big = await insurancePool.getPoolPosition(ownerAccount, 0);
+      const position_small = await insurancePool.getPoolPosition(
+        otherAccount,
+        0
+      );
       expect(position_big[3]).to.equal(
         ethers.parseUnits("21000000", "ether").toString()
       );
