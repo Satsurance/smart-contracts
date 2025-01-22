@@ -86,6 +86,9 @@ describe("Insurance", async function () {
       expect((init_position[2] * new_total_assets) / new_total_shares).to.equal(
         ethers.parseUnits("97", "ether").toString()
       );
+
+      // Test quit pool
+      await insurancePool.quitPool(0);
     });
 
     it("test slashing during staking effects", async () => {
