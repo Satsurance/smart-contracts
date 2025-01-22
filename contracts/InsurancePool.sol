@@ -263,17 +263,14 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
             "Funds are timelocked, first lock."
         );
         require(
+            position.minTimeStake==0||
             (block.timestamp - position.startDate) % position.minTimeStake <= timegapToUnstake,
             "Funds are timelocked, auto-restake lock.");
         _updateReward(toRemove);
 
 
-
-        withdrawAmount = (position.shares *
-            totalAssetsStaked) /
-            totalPoolShares +
-            // Bonus
-            addressUnstakedSchdl[toRemove] + rewards[toRemove];
+        // First calculate withdraw based on shares
+        withdrawAmount = (position.shares * totalAssetsStaked) / totalPoolShares;
 
         uint sharesToRedeem = position.shares;
 
@@ -281,6 +278,8 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         totalPoolShares -= sharesToRedeem;
         userTotalShares[toRemove] -= sharesToRedeem;
         positions[toRemove][positionId].active = false;
+        // Add leftovers to withdraw
+        withdrawAmount += addressUnstakedSchdl[toRemove] + rewards[toRemove];
         addressUnstakedSchdl[toRemove] = 0;
         rewards[toRemove] = 0;
 
