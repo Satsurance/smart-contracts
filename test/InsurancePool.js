@@ -256,6 +256,42 @@ describe("Insurance", async function () {
         allowedUnderstaking
       );
     });
+
+    it("test auto-restake mechanics", async function () {
+      const { btcToken, insurancePool } = await loadFixture(basicFixture);
+      const [ownerAccount] = await ethers.getSigners();
+
+      // Setup - create a 90-day staking position
+      const ninetyDays = 60 * 60 * 24 * 90;
+      await btcToken.approve(insurancePool, ethers.parseUnits("100", "ether"));
+      await insurancePool.joinPool(
+        ethers.parseUnits("100", "ether"),
+        ninetyDays
+      );
+
+      // Get initial position info
+      const position = await insurancePool.getPoolPosition(ownerAccount, 0);
+      const startDate = Number(position.startDate);
+
+      // Try to quit before first period - should fail
+      await time.increaseTo(startDate + ninetyDays - 1);
+      await expect(insurancePool.quitPool(0)).to.be.revertedWith(
+        "Funds are timelocked, first lock."
+      );
+
+      // Move to just after 90 days but outside timegap window (1 week + 1 day after period)
+      await time.increaseTo(
+        startDate + ninetyDays + 7 * 24 * 60 * 60 + 24 * 60 * 60
+      );
+      await expect(insurancePool.quitPool(0)).to.be.revertedWith(
+        "Funds are timelocked, auto-restake lock."
+      );
+
+      // Move to within timegap window of second period (90 days * 2)
+      await time.increaseTo(startDate + ninetyDays * 2 + 24 * 60 * 60); // 1 day into window
+      // Should succeed now as we're in the withdrawal window
+      await expect(insurancePool.quitPool(0)).to.not.be.reverted;
+    });
   });
 
   describe("Claimer", async function () {
