@@ -292,6 +292,36 @@ describe("Insurance", async function () {
       // Should succeed now as we're in the withdrawal window
       await expect(insurancePool.quitPool(0)).to.not.be.reverted;
     });
+
+    it("test minimum stake amount edge cases", async function () {
+      const { btcToken, insurancePool } = await loadFixture(basicFixture);
+      const [ownerAccount] = await ethers.getSigners();
+
+      // Get minimum stake amount from contract
+      const minimumStake = await insurancePool.minimumStakeAmount();
+
+      // Approve enough tokens for all tests
+      await btcToken.approve(insurancePool, ethers.parseUnits("1", "ether"));
+
+      // Test exactly minimum amount - should succeed
+      await expect(insurancePool.joinPool(minimumStake, 60 * 60 * 24 * 90)).to
+        .not.be.reverted;
+
+      // Verify position was created correctly
+      const position = await insurancePool.getPoolPosition(ownerAccount, 0);
+      expect(position.initialAmount).to.equal(minimumStake);
+      expect(position.active).to.be.true;
+
+      // Test amount 1 wei below minimum - should fail
+      await expect(
+        insurancePool.joinPool(minimumStake - 1n, 0)
+      ).to.be.revertedWith("Too small staking amount.");
+
+      // Test amount significantly below minimum - should fail
+      await expect(
+        insurancePool.joinPool(minimumStake / 2n, 0)
+      ).to.be.revertedWith("Too small staking amount.");
+    });
   });
 
   describe("Claimer", async function () {
