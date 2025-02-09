@@ -47,7 +47,10 @@ struct PoolStake {
 error InvalidSignature(uint256 index);
 
 contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable {
+    address public poolUnderwriter;
+    address public poolUnderwriterSigner;
 
+    bool public isNewDepositsAccepted;
 
     address public governor;
     address public claimer;
@@ -62,7 +65,10 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
     mapping(address => uint) public positionCounter;
     mapping(address => uint) public userTotalShares;
 
-    // Temporary solution
+    // Underwriters
+    uint public minUnderwriterPercentage = 1000; // It is 10%
+
+    // Scheduled unstake part
     mapping(address => uint) public addressUnstakedSchdl;
     uint public timegapToUnstake;
     uint public scheduledUnstakeFee;
@@ -88,6 +94,8 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
     }
 
     function initialize(
+        address _poolUnderwritter,
+        address _poolUnderwritterSigner,
         address _governor,
         address _poolAsset,
         address _owner,
@@ -96,11 +104,14 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         __Ownable_init(_owner);
         __EIP712_init("Insurance Pool", "1");
 
+        poolUnderwriter =_poolUnderwritter;
+        poolUnderwriterSigner = _poolUnderwritterSigner;
         governor = _governor;
         claimer = _claimer;
         poolAsset = IERC20(_poolAsset);
         totalAssetsStaked = 0;
         totalPoolShares = 0;
+        isNewDepositsAccepted = false;
 
         possibleMinStakeTimes[60 * 60 * 24 * 90] = true;
         possibleMinStakeTimes[60 * 60 * 24 * 180] = true;
@@ -203,6 +214,16 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
             rewards[msg.sender] = 0;
             poolAsset.transfer(msg.sender, reward);
         }
+    }
+
+    // Underwriter's part of the stake can't be less then 10%
+    function allowedAmountUserToStake() public view returns(uint) {
+        return ((((userTotalShares[poolUnderwriter] * 10000)/minUnderwriterPercentage) - totalPoolShares) * totalAssetsStaked) / totalPoolShares;
+    }
+
+    // Underwriter's part of the stake can't be less then 10%
+    function allowedUnderwriterToUnstake() public view returns(uint) {
+        return ((userTotalShares[poolUnderwriter] - (totalPoolShares * minUnderwriterPercentage) / 10000) * totalAssetsStaked)/totalPoolShares;
     }
 
     function joinPool(
