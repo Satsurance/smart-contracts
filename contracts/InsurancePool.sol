@@ -47,11 +47,6 @@ struct PoolStake {
 error InvalidSignature(uint256 index);
 
 contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable {
-    address public poolUnderwriter;
-    address public poolUnderwriterSigner;
-
-    bool public isNewDepositsAccepted;
-
     address public governor;
     address public claimer;
     IERC20 public poolAsset;
@@ -66,7 +61,11 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
     mapping(address => uint) public userTotalShares;
 
     // Underwriters
-    uint public minUnderwriterPercentage = 1000; // It is 10%
+    uint public minUnderwriterPercentage;
+    address public poolUnderwriter;
+    address public poolUnderwriterSigner;
+    bool public isNewDepositsAccepted;
+
 
     // Scheduled unstake part
     mapping(address => uint) public addressUnstakedSchdl;
@@ -99,7 +98,9 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         address _governor,
         address _poolAsset,
         address _owner,
-        address _claimer
+        address _claimer,
+        uint _minUnderwriterPercentage, // 1000 is 10%
+        bool _isNewDepositsAccepted
     ) public initializer {
         __Ownable_init(_owner);
         __EIP712_init("Insurance Pool", "1");
@@ -111,7 +112,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         poolAsset = IERC20(_poolAsset);
         totalAssetsStaked = 0;
         totalPoolShares = 0;
-        isNewDepositsAccepted = false;
+        isNewDepositsAccepted = _isNewDepositsAccepted;
 
         possibleMinStakeTimes[60 * 60 * 24 * 90] = true;
         possibleMinStakeTimes[60 * 60 * 24 * 180] = true;
@@ -120,6 +121,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         episodsStartDate = block.timestamp;
         updatedRewardsAt = block.timestamp;
         timegapToUnstake = 1 weeks;
+        minUnderwriterPercentage = _minUnderwriterPercentage;
         // TODO choose correct values
         scheduledUnstakeFee = 10000;
         minimumStakeAmount = 100000000;
@@ -216,13 +218,21 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         }
     }
 
+    function setNewDepositsFlag(bool _isNewDepositsAccepted) external {
+        require(msg.sender == poolUnderwriter, "Access check fail.");
+        isNewDepositsAccepted = _isNewDepositsAccepted;
+    }
+
     // Underwriter's part of the stake can't be less then 10%
-    function allowedAmountUserToStake() public view returns(uint) {
+    function maxAmountUserToStake() public view returns(uint) {
         return ((((userTotalShares[poolUnderwriter] * 10000)/minUnderwriterPercentage) - totalPoolShares) * totalAssetsStaked) / totalPoolShares;
     }
 
     // Underwriter's part of the stake can't be less then 10%
-    function allowedUnderwriterToUnstake() public view returns(uint) {
+    function maxUnderwriterToUnstake() public view returns(uint) {
+        if(userTotalShares[poolUnderwriter] == totalPoolShares) {
+            return totalAssetsStaked;
+        }
         return ((userTotalShares[poolUnderwriter] - (totalPoolShares * minUnderwriterPercentage) / 10000) * totalAssetsStaked)/totalPoolShares;
     }
 
@@ -235,6 +245,8 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
             "Not valid minimum time staking option."
         );
         require(_amount >= minimumStakeAmount, "Too small staking amount.");
+        require(msg.sender == poolUnderwriter || _amount <= maxAmountUserToStake(), "Underwriter position can't be less than allowed.");
+        require(msg.sender == poolUnderwriter || isNewDepositsAccepted, "New deposits are not allowed.");
 
         poolAsset.transferFrom(msg.sender, address(this), _amount);
         _updateReward(address(msg.sender));
@@ -352,6 +364,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
 
         // First calculate withdraw based on shares
         withdrawAmount = (position.shares * totalAssetsStaked) / totalPoolShares;
+        require(toRemove != poolUnderwriter || withdrawAmount <= maxUnderwriterToUnstake(), "Underwriter position can't be less than allowed.");
 
         uint sharesToRedeem = position.shares;
 
