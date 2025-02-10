@@ -457,7 +457,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
                 coverageStartDate,
                 coverageEndDate,
                 coverageDescription,
-                deadline,
+                deadline
             )
         );
         require(
