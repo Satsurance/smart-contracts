@@ -8,7 +8,6 @@ import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/crypt
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 
-
 event PoolJoined(
     address indexed user,
     uint positionId,
@@ -35,6 +34,16 @@ event ClaimExecuted(
     uint totalAssetsAfter,
     uint timestamp
 );
+
+event NewCover(
+    address indexed purchaser,
+    address indexed account,
+    uint amount,
+    uint startDate,
+    uint endDate,
+    string description
+);
+
 
 struct PoolStake {
     uint startDate;
@@ -83,10 +92,13 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
     mapping(address => uint) public userRewardPerTokenPaid;
     mapping(address => uint) public rewards;
 
-    mapping(address => uint256) public addrNonces;
+    mapping(uint256 => bool) public signatureNonces;
     bytes32 private constant UNSTAKE_TYPEHASH = keccak256(
-            "UnstakeRequest(address user,uint256 positionId,uint256 deadline,uint256 nonce)"
-        );
+        "UnstakeRequest(address user,uint256 positionId,uint256 deadline)"
+    );
+    bytes32 private constant PURCHASE_COVERAGE_TYPEHASH = keccak256(
+        "PurchaseCoverageRequest(address account,uint256 coverAmount,uint256 purchaseAmount,uint256 startDate,uint256 endDate,string description,uint256 deadline,uint256 nonce)"
+    );
 
     constructor() payable {
         _disableInitializers();
@@ -292,31 +304,15 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
 
 
 
-    function _verifyUnstakeSignature(
+    function _verifySignature(
+            bytes32 structHash,
             address user,
-            uint256 positionId,
-            uint256 deadline,
-            uint256 nonce,
             uint8 v,
             bytes32 r,
             bytes32 s
         ) public view returns (bool) {
-        require(block.timestamp <= deadline, "Signature expired");
-        require(nonce == addrNonces[user], "Invalid nonce");
-
-        bytes32 structHash = keccak256(
-            abi.encode(
-                UNSTAKE_TYPEHASH,
-                user,
-                positionId,
-                deadline,
-                nonce
-            )
-        );
-
         bytes32 hash = _hashTypedDataV4(structHash);
         address signer = ECDSA.recover(hash, v, r, s);
-
         return signer == user;
     }
 
@@ -325,19 +321,25 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         uint8[] memory v, bytes32[] memory r, bytes32[] memory s
     ) external {
         for(uint i = 0; i < toUnstakeAddrs.length; i++) {
-            require(
-                _verifyUnstakeSignature(
+            require(block.timestamp <= deadlines[i], "Signature expired");
+            bytes32 structHash = keccak256(
+                abi.encode(
+                    UNSTAKE_TYPEHASH,
                     toUnstakeAddrs[i],
                     positionsIds[i],
-                    deadlines[i],
-                    addrNonces[toUnstakeAddrs[i]],
+                    deadlines[i]
+                )
+            );
+            require(
+                _verifySignature(
+                    structHash,
+                    toUnstakeAddrs[i],
                     v[i],
                     r[i],
                     s[i]
                 ),
                 InvalidSignature(i)
             );
-            addrNonces[toUnstakeAddrs[i]]++;
             uint withdrawAmount = _removePoolPosition(toUnstakeAddrs[i], positionsIds[i]);
             addressUnstakedSchdl[toUnstakeAddrs[i]] += withdrawAmount - scheduledUnstakeFee;
         }
@@ -356,7 +358,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
             "Funds are timelocked, first lock."
         );
         require(
-            position.minTimeStake==0||
+            position.minTimeStake == 0||
             (block.timestamp - position.startDate) % position.minTimeStake <= timegapToUnstake,
             "Funds are timelocked, auto-restake lock.");
         _updateReward(toRemove);
@@ -387,8 +389,25 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         );
     }
 
-    function rewardPool(uint amount) external returns (bool completed) {
-        poolAsset.transferFrom(msg.sender, address(this), amount);
+    function executeClaim(
+        address receiver,
+        uint amount
+    ) external onlyClaimer returns (bool completed) {
+        _updateReward(address(0));
+        totalAssetsStaked -= amount;
+        poolAsset.transfer(receiver, amount);
+
+        emit ClaimExecuted(
+            msg.sender,
+            receiver,
+            amount,
+            totalAssetsStaked,
+            block.timestamp
+        );
+        return true;
+    }
+
+    function _rewardPool(uint amount) internal {
         _updateReward(address(0));
         uint currentEpisode = (block.timestamp - episodsStartDate) /
             episodeDuration;
@@ -408,23 +427,59 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
                 (episodeDuration -
                     (currentEpisodeFinishTime - block.timestamp))) /
             episodeDuration;
-        return true;
     }
 
-    function executeClaim(
-        address receiver,
-        uint amount
-    ) external onlyClaimer returns (bool completed) {
-        _updateReward(address(0));
-        totalAssetsStaked -= amount;
-        poolAsset.transfer(receiver, amount);
+    function purchaseCover(
+        address coverageAccount,
+        uint coverageAmount,
+        uint purchaseAmount,
+        uint coverageStartDate,
+        uint coverageEndDate,
+        string calldata coverageDescription,
+        uint deadline,
+        uint256 nonce,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external returns (bool completed) {
+        require(signatureNonces[nonce] == false, "The nonce was already used.");
+        require(block.timestamp <= deadline, "Signarue expired.");
+        require(coverageStartDate < coverageEndDate, "Wrong dates.");
+        signatureNonces[nonce] = true;
 
-        emit ClaimExecuted(
+        bytes32 structHash = keccak256(
+            abi.encode(
+                PURCHASE_COVERAGE_TYPEHASH,
+                coverageAccount,
+                coverageAmount,
+                purchaseAmount,
+                coverageStartDate,
+                coverageEndDate,
+                coverageDescription,
+                deadline,
+                nonce
+            )
+        );
+        require(
+            _verifySignature(
+                structHash,
+                poolUnderwriterSigner,
+                v,
+                r,
+                s
+            ),
+            InvalidSignature(0)
+        );
+        poolAsset.transferFrom(msg.sender, address(this), purchaseAmount);
+        _rewardPool(purchaseAmount);
+
+        emit NewCover(
             msg.sender,
-            receiver,
-            amount,
-            totalAssetsStaked,
-            block.timestamp
+            coverageAccount,
+            coverageAmount,
+            coverageStartDate,
+            coverageEndDate,
+            coverageDescription
         );
         return true;
     }
