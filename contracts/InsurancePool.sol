@@ -92,12 +92,12 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
     mapping(address => uint) public userRewardPerTokenPaid;
     mapping(address => uint) public rewards;
 
-    mapping(uint256 => bool) public signatureNonces;
+    mapping(uint256 => bool) public coverIds;
     bytes32 private constant UNSTAKE_TYPEHASH = keccak256(
         "UnstakeRequest(address user,uint256 positionId,uint256 deadline)"
     );
     bytes32 private constant PURCHASE_COVERAGE_TYPEHASH = keccak256(
-        "PurchaseCoverageRequest(address account,uint256 coverAmount,uint256 purchaseAmount,uint256 startDate,uint256 endDate,string description,uint256 deadline,uint256 nonce)"
+        "PurchaseCoverageRequest(uint256 coverId,address account,uint256 coverAmount,uint256 purchaseAmount,uint256 startDate,uint256 endDate,string description,uint256 deadline)"
     );
 
     constructor() payable {
@@ -430,6 +430,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
     }
 
     function purchaseCover(
+        uint coverId,
         address coverageAccount,
         uint coverageAmount,
         uint purchaseAmount,
@@ -437,19 +438,19 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         uint coverageEndDate,
         string calldata coverageDescription,
         uint deadline,
-        uint256 nonce,
         uint8 v,
         bytes32 r,
         bytes32 s
     ) external returns (bool completed) {
-        require(signatureNonces[nonce] == false, "The nonce was already used.");
+        require(coverIds[coverId] == false, "The nonce was already used.");
         require(block.timestamp <= deadline, "Signarue expired.");
         require(coverageStartDate < coverageEndDate, "Wrong dates.");
-        signatureNonces[nonce] = true;
+        coverIds[coverId] = true;
 
         bytes32 structHash = keccak256(
             abi.encode(
                 PURCHASE_COVERAGE_TYPEHASH,
+                coverId,
                 coverageAccount,
                 coverageAmount,
                 purchaseAmount,
@@ -457,7 +458,6 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
                 coverageEndDate,
                 coverageDescription,
                 deadline,
-                nonce
             )
         );
         require(
