@@ -2,9 +2,15 @@ const {
   time,
   loadFixture,
 } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
+const {
+  signUnstakeRequest,
+  signCoveragePurchase,
+} = require("../utils/signatures");
+const { purchaseCoverage } = require("./utils.js");
+
 const { expect } = require("chai");
 
-const { InsuranceSetup } = require("../ignition/modules/Insurance.js");
+const InsuranceSetup = require("../ignition/modules/Insurance.js");
 
 const allowedUnderstaking = ethers.parseUnits("0.000000001", "ether"); // 0.01 cent if bitcoin costs 100k
 const ninetyDays = 60 * 60 * 24 * 90;
@@ -22,56 +28,72 @@ describe("Insurance", async function () {
       const { btcToken, sursToken, insurancePool, claimer } = await loadFixture(
         basicFixture
       );
-      const [ownerAccount, otherAccount] = await ethers.getSigners();
+      // Get accounts matching Ignition setup
+      const [owner, poolUnderwriter, poolUnderwriterSigner, otherAccount] =
+        await ethers.getSigners();
 
-      // Make a position
-      await btcToken.approve(
-        insurancePool,
-        ethers.parseUnits("2000", "ether").toString()
+      // First, poolUnderwriter must stake to maintain the minimum percentage
+      await btcToken.transfer(
+        poolUnderwriter,
+        ethers.parseUnits("1000", "ether")
       );
+      await btcToken
+        .connect(poolUnderwriter)
+        .approve(insurancePool, ethers.parseUnits("1000", "ether"));
+      await insurancePool
+        .connect(poolUnderwriter)
+        .joinPool(ethers.parseUnits("100", "ether"), ninetyDays);
+
+      // Now owner can make a position
+      await btcToken.approve(insurancePool, ethers.parseUnits("2000", "ether"));
       await insurancePool.joinPool(
-        ethers.parseUnits("100", "ether").toString(),
+        ethers.parseUnits("10", "ether"),
         ninetyDays
       );
-      const init_position = await insurancePool.getPoolPosition(
-        ownerAccount,
-        0
-      );
+
+      const init_position = await insurancePool.getPoolPosition(owner, 0);
       const total_assets = await insurancePool.totalAssetsStaked();
       const total_shares = await insurancePool.totalPoolShares();
-      expect(init_position[3]).to.equal(
-        ethers.parseUnits("100", "ether").toString()
-      );
       expect((init_position[2] * total_assets) / total_shares).to.equal(
-        ethers.parseUnits("100", "ether").toString()
+        ethers.parseUnits("10", "ether")
       );
 
       // Check reward logic
       const minimumRewardAmount = ethers.parseUnits("0.0000001", "ether"); // 1 cent reward for 100k btc
-      await insurancePool.rewardPool(minimumRewardAmount.toString());
+      await btcToken.transfer(otherAccount, minimumRewardAmount); // Transfer tokens to buyer
+
+      await purchaseCoverage({
+        insurancePool,
+        poolAsset: btcToken,
+        buyer: otherAccount,
+        underwriterSigner: poolUnderwriterSigner,
+        coveredAccount: otherAccount.address,
+        purchaseAmount: minimumRewardAmount,
+        coverageAmount: minimumRewardAmount * 100n,
+        duration: 99999999,
+        description: "",
+      });
+
       // It is required some time to have all the rewards distributed.
       await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 500);
-      const earnedAmount = await insurancePool.earned(ownerAccount);
+      const earnedAmount = await insurancePool.earned(owner);
 
       // There are some precision errors
       expect(earnedAmount).to.approximately(
-        minimumRewardAmount,
+        (minimumRewardAmount * 10n) / 110n, // Adjust expected rewards based on share proportion
         allowedUnderstaking
       );
 
       // Setup for claim testing
       // Approve and stake SURS tokens for voting
-      await sursToken.approve(
-        claimer,
-        ethers.parseUnits("100", "ether").toString()
-      );
-      await claimer.stake(ethers.parseUnits("100", "ether").toString());
+      await sursToken.approve(claimer, ethers.parseUnits("100", "ether"));
+      await claimer.stake(ethers.parseUnits("100", "ether"));
 
       // Create and vote on claim
       await claimer.createClaim(
         otherAccount,
         "Test claim",
-        ethers.parseUnits("3", "ether").toString()
+        ethers.parseUnits("3", "ether")
       );
       await claimer.vote(0, true); // Vote in favor of claim
 
@@ -84,8 +106,11 @@ describe("Insurance", async function () {
       // Check slashing effect
       const new_total_assets = await insurancePool.totalAssetsStaked();
       const new_total_shares = await insurancePool.totalPoolShares();
-      expect((init_position[2] * new_total_assets) / new_total_shares).to.equal(
-        ethers.parseUnits("97", "ether").toString()
+      expect(
+        (init_position[2] * new_total_assets) / new_total_shares
+      ).to.approximately(
+        ethers.parseUnits((((110 - 3) / 110) * 10).toString(), "ether"),
+        allowedUnderstaking
       );
 
       // Test quit pool
@@ -97,35 +122,50 @@ describe("Insurance", async function () {
       const { btcToken, sursToken, insurancePool, claimer } = await loadFixture(
         basicFixture
       );
-      const [ownerAccount, otherAccount] = await ethers.getSigners();
-      // Make a position
-      await btcToken.approve(
+      const [owner, poolUnderwriter, poolUnderwriterSigner] =
+        await ethers.getSigners();
+
+      await btcToken.transfer(
+        poolUnderwriter,
+        ethers.parseUnits("1000", "ether")
+      );
+      // Make a position as underwriter
+      await btcToken
+        .connect(poolUnderwriter)
+        .approve(insurancePool, ethers.parseUnits("100", "ether"));
+      await insurancePool
+        .connect(poolUnderwriter)
+        .joinPool(ethers.parseUnits("100", "ether"), ninetyDays);
+
+      // Generate rewards through coverage purchase
+      const purchaseAmount = ethers.parseUnits("1", "ether");
+      await btcToken.transfer(poolUnderwriter, purchaseAmount);
+
+      // Purchase coverage to generate rewards
+      await purchaseCoverage({
         insurancePool,
-        ethers.parseUnits("2000", "ether").toString()
-      );
-      await insurancePool.joinPool(
-        ethers.parseUnits("100", "ether").toString(),
-        ninetyDays
-      );
-      const rewardAmount = ethers.parseUnits("1", "ether");
-      await insurancePool.rewardPool(rewardAmount.toString());
+        poolAsset: btcToken,
+        buyer: poolUnderwriter,
+        underwriterSigner: poolUnderwriterSigner,
+        coveredAccount: poolUnderwriter.address,
+        purchaseAmount: purchaseAmount,
+        coverageAmount: purchaseAmount * 100n,
+        duration: 99999999,
+        description: "Test coverage",
+      });
 
       // Setup for claim testing
-      // Approve and stake SURS tokens for voting
-      await sursToken.approve(
-        claimer,
-        ethers.parseUnits("100", "ether").toString()
-      );
-      await claimer.stake(ethers.parseUnits("100", "ether").toString());
+      await sursToken.approve(claimer, ethers.parseUnits("100", "ether"));
+      await claimer.stake(ethers.parseUnits("100", "ether"));
 
       // Distribute reward after slashing
       await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 500);
 
       // Create and vote on claim
       await claimer.createClaim(
-        otherAccount,
+        poolUnderwriter.address,
         "Test claim",
-        ethers.parseUnits("10", "ether").toString()
+        ethers.parseUnits("10", "ether")
       );
       await claimer.vote(0, true); // Vote in favor of claim
 
@@ -135,55 +175,65 @@ describe("Insurance", async function () {
       // Execute the approved claim
       await claimer.executeClaim(0);
 
-      const earnedAmount = await insurancePool.earned(ownerAccount);
-      // There are should be no rewards drop.
-      expect(earnedAmount).to.approximately(rewardAmount, allowedUnderstaking);
+      const earnedAmount = await insurancePool.earned(poolUnderwriter.address);
+
+      // Should receive full rewards since underwriter is the only staker
+      expect(earnedAmount).to.approximately(
+        purchaseAmount,
+        allowedUnderstaking
+      );
     });
 
     it("test two stakers right proportion", async () => {
       const { btcToken, insurancePool } = await loadFixture(basicFixture);
-      const [ownerAccount, otherAccount] = await ethers.getSigners();
+      const [owner, poolUnderwriter, poolUnderwriterSigner] =
+        await ethers.getSigners();
 
       // Make a position
       await btcToken.transfer(
-        otherAccount,
-        ethers.parseUnits("0.01", "ether").toString()
-      );
-      await btcToken.approve(
-        insurancePool,
-        ethers.parseUnits("51000000", "ether").toString()
+        poolUnderwriter,
+        ethers.parseUnits("21000000", "ether")
       );
       await btcToken
-        .connect(otherAccount)
-        .approve(insurancePool, ethers.parseUnits("1", "ether").toString());
+        .connect(poolUnderwriter)
+        .approve(insurancePool, ethers.parseUnits("51000000", "ether"));
+      await btcToken.approve(insurancePool, ethers.parseUnits("1", "ether"));
+      await insurancePool
+        .connect(poolUnderwriter)
+        .joinPool(ethers.parseUnits("21000000", "ether"), ninetyDays);
       await insurancePool.joinPool(
-        ethers.parseUnits("21000000", "ether").toString(),
+        ethers.parseUnits("0.01", "ether"),
         ninetyDays
       );
-      await insurancePool
-        .connect(otherAccount)
-        .joinPool(ethers.parseUnits("0.01", "ether").toString(), ninetyDays);
 
-      const position_big = await insurancePool.getPoolPosition(ownerAccount, 0);
-      const position_small = await insurancePool.getPoolPosition(
-        otherAccount,
+      const position_big = await insurancePool.getPoolPosition(
+        poolUnderwriter,
         0
       );
-      expect(position_big[3]).to.equal(
+      const position_small = await insurancePool.getPoolPosition(owner, 0);
+      expect(position_big[2]).to.equal(
         ethers.parseUnits("21000000", "ether").toString()
       );
-      expect(position_small[3]).to.equal(
+      expect(position_small[2]).to.equal(
         ethers.parseUnits("0.01", "ether").toString()
       );
 
       // Check if rewards distributed honestly
-      await insurancePool.rewardPool(
-        ethers.parseUnits("1", "ether").toString()
-      );
+      await purchaseCoverage({
+        insurancePool,
+        poolAsset: btcToken,
+        buyer: owner,
+        underwriterSigner: poolUnderwriterSigner,
+        coveredAccount: poolUnderwriter.address,
+        purchaseAmount: ethers.parseUnits("1", "ether"),
+        coverageAmount: ethers.parseUnits("1", "ether") * 100n,
+        duration: 99999999,
+        description: "Test coverage",
+      });
 
       await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 600);
-      const earnedAmountBig = await insurancePool.earned(ownerAccount);
-      const earnedAmountSmall = await insurancePool.earned(otherAccount);
+      const earnedAmountBig = await insurancePool.earned(poolUnderwriter);
+      const earnedAmountSmall = await insurancePool.earned(owner);
 
       expect(earnedAmountBig).to.approximately(
         ethers.parseUnits("0.999999999523809606", "ether").toString(),

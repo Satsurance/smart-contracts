@@ -12,7 +12,7 @@ const PROPOSER_ROLE_ID = ethers.solidityPackedKeccak256(
 // Constants for Claimer
 const VOTING_PERIOD = 1 * 60 * 60; // 1 hour for test purposes
 
-exports.InsuranceSetup = buildModule("InsuranceContracts", (m) => {
+const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   const initialSupply = m.getParameter("initialSupply", INITIAL_SUPPLY);
   const wbtcInitialSupply = m.getParameter(
     "wbtcInitialSupply",
@@ -50,10 +50,13 @@ exports.InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     [
       insurancePoolLogic,
       m.encodeFunctionCall(insurancePoolLogic, "initialize", [
+        m.getAccount(1),
+        m.getAccount(2),
         m.getAccount(0),
         btcToken,
-        m.getAccount(0),
         ethers.ZeroAddress, // temporary claimer address
+        1000, // 10%
+        true,
       ]),
     ],
     { id: "InsurancePoolProxy" }
@@ -78,8 +81,9 @@ exports.InsuranceSetup = buildModule("InsuranceContracts", (m) => {
 
   // Set Claimer address in InsurancePool
   const insurancePool = m.contractAt("InsurancePool", insurancePoolProxy);
-  m.call(insurancePool, "updateClaimer", [claimerProxy]);
-  m.call(insurancePool, "transferOwnership", [timelock]);
+  m.call(insurancePool, "transferOwnership", [timelock], {
+    after: [m.call(insurancePool, "updateClaimer", [claimerProxy])],
+  });
 
   // Set contract ABIs to proxies
   const sursToken = m.contractAt("SursToken", sursTokenProxy);
@@ -98,4 +102,4 @@ exports.InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   };
 });
 
-// module.exports = exports.InsuranceSetup;
+module.exports = InsuranceSetup;

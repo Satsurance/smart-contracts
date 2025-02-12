@@ -49,14 +49,12 @@ struct PoolStake {
     uint startDate;
     uint minTimeStake;
     uint shares;
-    uint initialAmount;
     bool active;
 }
 
 error InvalidSignature(uint256 index);
 
 contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable {
-    address public governor;
     address public claimer;
     IERC20 public poolAsset;
 
@@ -109,17 +107,15 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         address _poolUnderwritterSigner,
         address _governor,
         address _poolAsset,
-        address _owner,
         address _claimer,
         uint _minUnderwriterPercentage, // 1000 is 10%
         bool _isNewDepositsAccepted
     ) public initializer {
-        __Ownable_init(_owner);
+        __Ownable_init(_governor);
         __EIP712_init("Insurance Pool", "1");
 
         poolUnderwriter =_poolUnderwritter;
         poolUnderwriterSigner = _poolUnderwritterSigner;
-        governor = _governor;
         claimer = _claimer;
         poolAsset = IERC20(_poolAsset);
         totalAssetsStaked = 0;
@@ -146,13 +142,11 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
     function updateContractLogic(
         address newImplementation,
         bytes memory data
-    ) external {
-        require(msg.sender == governor, "not authorized update call.");
+    ) onlyOwner external {
         upgradeToAndCall(newImplementation, data);
     }
 
-    function updateClaimer(address newClaimer) external {
-        require(msg.sender == governor, "not authorized update call.");
+    function updateClaimer(address newClaimer) onlyOwner external {
         require(newClaimer != address(0), "New claimer cannot be zero address");
         claimer = newClaimer;
     }
@@ -237,6 +231,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
 
     // Underwriter's part of the stake can't be less then 10%
     function maxAmountUserToStake() public view returns(uint) {
+        if(totalPoolShares == 0) return 0;
         return ((((userTotalShares[poolUnderwriter] * 10000)/minUnderwriterPercentage) - totalPoolShares) * totalAssetsStaked) / totalPoolShares;
     }
 
@@ -269,7 +264,6 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
                 startDate: block.timestamp,
                 minTimeStake: _minTimeStake,
                 shares: newShares,
-                initialAmount: _amount,
                 active: true
             });
 
@@ -456,7 +450,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
                 purchaseAmount,
                 coverageStartDate,
                 coverageEndDate,
-                coverageDescription,
+                keccak256(bytes(coverageDescription)),
                 deadline
             )
         );
