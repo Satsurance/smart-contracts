@@ -98,4 +98,4 @@ exports.InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   };
 });
 
-// module.exports = exports.InsuranceSetup;
+module.exports = exports.InsuranceSetup;

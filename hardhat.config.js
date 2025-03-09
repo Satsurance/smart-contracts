@@ -8,6 +8,9 @@ const config = {
     bitlayer_testnet: {
       url: "https://rpc.ankr.com/bitlayer_testnet",
     },
+    ink_testnet: {
+      url: "https://rpc-qnd.inkonchain.com",
+    },
   },
   solidity: {
     version: "0.8.28",
@@ -23,11 +26,16 @@ const config = {
 // Add private keys to bitlayer_testnet if they exist in .env
 if (process.env.PRIVATE_KEY) {
   config.networks.bitlayer_testnet.accounts = [process.env.PRIVATE_KEY];
+  config.networks.ink_testnet.accounts = [process.env.PRIVATE_KEY];
 }
 
 // Add API key to URL if it exists in .env
 if (process.env.BITLAYER_API_KEY) {
   config.networks.bitlayer_testnet.url = `https://rpc.ankr.com/bitlayer_testnet/${process.env.BITLAYER_API_KEY}`;
+}
+
+if (process.env.INK_API) {
+  config.networks.ink_testnet.url = `${process.env.INK_API}`;
 }
 
 module.exports = config;
