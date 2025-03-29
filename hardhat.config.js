@@ -11,6 +11,9 @@ const config = {
     ink_testnet: {
       url: "https://rpc-qnd.inkonchain.com",
     },
+    bob_testnet: {
+      url: "https://bob-sepolia.rpc.gobob.xyz",
+    },
   },
   solidity: {
     version: "0.8.28",
@@ -27,6 +30,7 @@ const config = {
 if (process.env.PRIVATE_KEY) {
   config.networks.bitlayer_testnet.accounts = [process.env.PRIVATE_KEY];
   config.networks.ink_testnet.accounts = [process.env.PRIVATE_KEY];
+  config.networks.bob_testnet.accounts = [process.env.PRIVATE_KEY];
 }
 
 // Add API key to URL if it exists in .env
