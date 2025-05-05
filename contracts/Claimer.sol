@@ -8,7 +8,6 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./IPool.sol";
 
 contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
-    // State variables
     IERC20 public daoToken;
     IPool public insurancePool;
     uint256 public votingPeriod;
