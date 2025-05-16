@@ -3,7 +3,10 @@ pragma solidity ^0.8.20;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+
 
 
 event PoolJoined(
@@ -41,7 +44,9 @@ struct PoolStake {
     bool active;
 }
 
-contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
+error InvalidSignature(uint256 index);
+
+contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable {
 
 
     address public governor;
@@ -73,6 +78,11 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
     mapping(address => uint) public userRewardPerTokenPaid;
     mapping(address => uint) public rewards;
 
+    mapping(address => uint256) public addrNonces;
+    bytes32 private constant UNSTAKE_TYPEHASH = keccak256(
+            "UnstakeRequest(address user,uint256 positionId,uint256 deadline,uint256 nonce)"
+        );
+
     constructor() payable {
         _disableInitializers();
     }
@@ -84,14 +94,14 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         address _claimer
     ) public initializer {
         __Ownable_init(_owner);
+        __EIP712_init("Insurance Pool", "1");
 
         governor = _governor;
         claimer = _claimer;
         poolAsset = IERC20(_poolAsset);
         totalAssetsStaked = 0;
         totalPoolShares = 0;
-        // This one is for tests
-        possibleMinStakeTimes[0] = true;
+
         possibleMinStakeTimes[60 * 60 * 24 * 90] = true;
         possibleMinStakeTimes[60 * 60 * 24 * 180] = true;
         possibleMinStakeTimes[60 * 60 * 24 * 360] = true;
@@ -234,17 +244,67 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable {
         return true;
     }
 
-    function quitPool(uint positionId) external returns (bool completed) {
+    function quitPoolPosition(uint positionId) external returns (bool completed) {
         uint withdrawAmount = _removePoolPosition(msg.sender, positionId);
         poolAsset.transfer(msg.sender, withdrawAmount);
         return true;
     }
 
+    function getScheduledUnstaked() external returns (bool completed) {
+        uint witdrawAmount = addressUnstakedSchdl[msg.sender];
+        addressUnstakedSchdl[msg.sender] = 0;
+        poolAsset.transfer(msg.sender, witdrawAmount);
+        return true;
+    }
+
+
+
+    function _verifyUnstakeSignature(
+            address user,
+            uint256 positionId,
+            uint256 deadline,
+            uint256 nonce,
+            uint8 v,
+            bytes32 r,
+            bytes32 s
+        ) public view returns (bool) {
+        require(block.timestamp <= deadline, "Signature expired");
+        require(nonce == addrNonces[user], "Invalid nonce");
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                UNSTAKE_TYPEHASH,
+                user,
+                positionId,
+                deadline,
+                nonce
+            )
+        );
+
+        bytes32 hash = _hashTypedDataV4(structHash);
+        address signer = ECDSA.recover(hash, v, r, s);
+
+        return signer == user;
+    }
+
     function scheduledUnstake(
-        address[] memory toUnstakeAddrs, uint[] memory positionsIds, uint[] memory v, uint[] memory r, uint[] memory s
+        address[] memory toUnstakeAddrs, uint[] memory positionsIds, uint[] memory deadlines,
+        uint8[] memory v, bytes32[] memory r, bytes32[] memory s
     ) external {
-        // TODO make signed message verification
         for(uint i = 0; i < toUnstakeAddrs.length; i++) {
+            require(
+                _verifyUnstakeSignature(
+                    toUnstakeAddrs[i],
+                    positionsIds[i],
+                    deadlines[i],
+                    addrNonces[toUnstakeAddrs[i]],
+                    v[i],
+                    r[i],
+                    s[i]
+                ),
+                InvalidSignature(i)
+            );
+            addrNonces[toUnstakeAddrs[i]]++;
             uint withdrawAmount = _removePoolPosition(toUnstakeAddrs[i], positionsIds[i]);
             addressUnstakedSchdl[toUnstakeAddrs[i]] += withdrawAmount - scheduledUnstakeFee;
         }
