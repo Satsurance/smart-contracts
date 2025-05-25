@@ -4,163 +4,83 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./IPool.sol";
 
+struct Claim {
+    address proposer;
+    address receiver;
+    address poolAddress;
+    string description;
+    uint256 amount;
+    uint256 startTime;
+    bool approved;
+    bool executed;
+    bool exists;
+}
+
 contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
-    IERC20 public daoToken;
-    IPool public insurancePool;
-    uint256 public votingPeriod;
-
-    struct Claim {
-        address proposer;
-        address receiver;
-        string description;
-        uint256 amount;
-        uint256 startTime;
-        uint256 forVotes;
-        uint256 againstVotes;
-        bool executed;
-        bool exists;
-    }
-
-    struct StakeSnapshot {
-        uint256 amount;
-        uint256 timestamp;
-    }
-
-    struct UserStake {
-        uint256 currentAmount;
-        uint256 lastVoteTime;
-        StakeSnapshot[] history;
-    }
+    // State variables
+    address public approver;
 
     mapping(uint256 => Claim) public claims;
-    mapping(address => UserStake) public stakes;
-    mapping(uint256 => mapping(address => bool)) public hasVoted;
-
     uint256 public claimCounter;
 
     // Events
-    event Staked(address indexed user, uint256 amount, uint256 timestamp);
-    event Unstaked(address indexed user, uint256 amount, uint256 timestamp);
     event ClaimCreated(
         uint256 indexed claimId,
         address proposer,
         address receiver,
+        address poolAddress,
         string description,
         uint256 amount,
         uint256 timestamp
     );
-    event Voted(
-        uint256 indexed claimId,
-        address indexed voter,
-        bool support,
-        uint256 weight
-    );
+    event ClaimApproved(uint256 indexed claimId, address indexed approver);
     event ClaimExecuted(uint256 indexed claimId);
+    event ApproverChanged(
+        address indexed oldApprover,
+        address indexed newApprover
+    );
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
-    function initialize(
-        address _daoToken,
-        address _insurancePool,
-        uint256 _votingPeriod
-    ) public initializer {
+    function initialize(address approver_) public initializer {
         __Ownable_init(msg.sender);
         __UUPSUpgradeable_init();
 
-        daoToken = IERC20(_daoToken);
-        insurancePool = IPool(_insurancePool);
-        votingPeriod = _votingPeriod;
+        approver = approver_;
     }
 
-    // Helper function to get stake amount at a specific timestamp
-    function getStakeAtTime(
-        address _user,
-        uint256 _timestamp
-    ) public view returns (uint256) {
-        UserStake storage userStake = stakes[_user];
-
-        // If no stake history, return 0
-        if (userStake.history.length == 0) return 0;
-
-        // Find the most recent stake before the timestamp
-        for (uint256 i = userStake.history.length; i > 0; i--) {
-            if (userStake.history[i - 1].timestamp <= _timestamp) {
-                return userStake.history[i - 1].amount;
-            }
-        }
-
-        return 0;
-    }
-
-    // Stake DAO tokens to participate in voting
-    function stake(uint256 _amount) external {
-        require(
-            daoToken.transferFrom(msg.sender, address(this), _amount),
-            "Transfer failed"
-        );
-
-        UserStake storage userStake = stakes[msg.sender];
-
-        // Update current amount
-        userStake.currentAmount += _amount;
-
-        // Create new stake snapshot
-        userStake.history.push(
-            StakeSnapshot({
-                amount: userStake.currentAmount,
-                timestamp: block.timestamp
-            })
-        );
-
-        emit Staked(msg.sender, _amount, block.timestamp);
-    }
-
-    // Unstake tokens if user hasn't voted recently
-    function unstake(uint256 _amount) external {
-        UserStake storage userStake = stakes[msg.sender];
-        require(userStake.currentAmount >= _amount, "Insufficient stake");
-        require(
-            block.timestamp >= userStake.lastVoteTime + votingPeriod,
-            "Cannot unstake during active votes"
-        );
-
-        userStake.currentAmount -= _amount;
-
-        // Create new stake snapshot
-        userStake.history.push(
-            StakeSnapshot({
-                amount: userStake.currentAmount,
-                timestamp: block.timestamp
-            })
-        );
-
-        require(daoToken.transfer(msg.sender, _amount), "Transfer failed");
-        emit Unstaked(msg.sender, _amount, block.timestamp);
+    // Set the approver address (only owner)
+    function setApprover(address newApprover) external onlyOwner {
+        require(newApprover != address(0), "Invalid approver address");
+        address oldApprover = approver;
+        approver = newApprover;
+        emit ApproverChanged(oldApprover, newApprover);
     }
 
     // Create a new claim
     function createClaim(
-        address _receiver,
-        string calldata _description,
-        uint256 _amount
+        address receiver,
+        address poolAddress,
+        string calldata description,
+        uint256 amount
     ) external {
-        require(_receiver != address(0), "Invalid receiver address");
+        require(receiver != address(0), "Invalid receiver address");
+        require(poolAddress != address(0), "Invalid pool address");
 
         uint256 claimId = claimCounter++;
         claims[claimId] = Claim({
             proposer: msg.sender,
-            receiver: _receiver,
-            description: _description,
-            amount: _amount,
+            receiver: receiver,
+            poolAddress: poolAddress,
+            description: description,
+            amount: amount,
             startTime: block.timestamp,
-            forVotes: 0,
-            againstVotes: 0,
+            approved: false,
             executed: false,
             exists: true
         });
@@ -168,85 +88,68 @@ contract Claimer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         emit ClaimCreated(
             claimId,
             msg.sender,
-            _receiver,
-            _description,
-            _amount,
+            receiver,
+            poolAddress,
+            description,
+            amount,
             block.timestamp
         );
     }
 
-    // Vote on a claim
-    function vote(uint256 _claimId, bool _support) external {
-        Claim storage claim = claims[_claimId];
+    // Approve a claim (only approver)
+    function approveClaim(uint256 claimId) external {
+        require(msg.sender == approver, "Only approver can approve claims");
+
+        Claim storage claim = claims[claimId];
         require(claim.exists, "Claim does not exist");
         require(!claim.executed, "Claim already executed");
-        require(
-            block.timestamp <= claim.startTime + votingPeriod,
-            "Voting period ended"
-        );
-        require(!hasVoted[_claimId][msg.sender], "Already voted");
+        require(!claim.approved, "Claim already approved");
 
-        // Get stake amount at claim creation time
-        uint256 weight = getStakeAtTime(msg.sender, claim.startTime);
-        require(weight > 0, "Must have had stake before claim creation");
-
-        if (_support) {
-            claim.forVotes += weight;
-        } else {
-            claim.againstVotes += weight;
-        }
-
-        hasVoted[_claimId][msg.sender] = true;
-        stakes[msg.sender].lastVoteTime = block.timestamp;
-
-        emit Voted(_claimId, msg.sender, _support, weight);
+        claim.approved = true;
+        emit ClaimApproved(claimId, msg.sender);
     }
 
-    // Execute a successful claim
-    function executeClaim(uint256 _claimId) external {
-        Claim storage claim = claims[_claimId];
+    // Execute an approved claim
+    function executeClaim(uint256 claimId) external {
+        Claim storage claim = claims[claimId];
         require(claim.exists, "Claim does not exist");
         require(!claim.executed, "Claim already executed");
-        require(
-            block.timestamp > claim.startTime + votingPeriod,
-            "Voting period not ended"
-        );
-        require(claim.forVotes > claim.againstVotes, "Vote failed");
+        require(claim.approved, "Claim not approved");
 
         claim.executed = true;
 
-        insurancePool.executeClaim(claim.receiver, claim.amount);
+        IPool(claim.poolAddress).executeClaim(claim.receiver, claim.amount);
 
-        emit ClaimExecuted(_claimId);
+        emit ClaimExecuted(claimId);
     }
 
     // View function to get claim details
     function getClaimDetails(
-        uint256 _claimId
+        uint256 claimId
     )
         external
         view
         returns (
             address proposer,
             address receiver,
+            address poolAddress,
             string memory description,
             uint256 amount,
             uint256 startTime,
-            uint256 forVotes,
-            uint256 againstVotes,
+            bool approved,
             bool executed,
             bool exists
         )
     {
-        Claim storage claim = claims[_claimId];
+        Claim storage claim = claims[claimId];
         return (
             claim.proposer,
             claim.receiver,
+            claim.poolAddress,
             claim.description,
             claim.amount,
             claim.startTime,
-            claim.forVotes,
-            claim.againstVotes,
+            claim.approved,
             claim.executed,
             claim.exists
         );

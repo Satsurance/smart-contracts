@@ -7,8 +7,6 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-
-
 event PoolJoined(
     address indexed user,
     uint positionId,
@@ -36,20 +34,25 @@ event ClaimExecuted(
     uint timestamp
 );
 
+event NewCover(
+    address indexed purchaser,
+    address indexed account,
+    uint amount,
+    uint startDate,
+    uint endDate,
+    string description
+);
+
 struct PoolStake {
     uint startDate;
     uint minTimeStake;
     uint shares;
-    uint initialAmount;
     bool active;
 }
 
 error InvalidSignature(uint256 index);
 
 contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable {
-
-
-    address public governor;
     address public claimer;
     IERC20 public poolAsset;
 
@@ -62,7 +65,13 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
     mapping(address => uint) public positionCounter;
     mapping(address => uint) public userTotalShares;
 
-    // Temporary solution
+    // Underwriters
+    uint public minUnderwriterPercentage;
+    address public poolUnderwriter;
+    address public poolUnderwriterSigner;
+    bool public isNewDepositsAccepted;
+
+    // Scheduled unstake part
     mapping(address => uint) public addressUnstakedSchdl;
     uint public timegapToUnstake;
     uint public scheduledUnstakeFee;
@@ -78,29 +87,39 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
     mapping(address => uint) public userRewardPerTokenPaid;
     mapping(address => uint) public rewards;
 
-    mapping(address => uint256) public addrNonces;
+    // Coverage tracking (from HEAD branch)
+    mapping(uint256 => bool) public coverIds;
+    
     bytes32 private constant UNSTAKE_TYPEHASH = keccak256(
-            "UnstakeRequest(address user,uint256 positionId,uint256 deadline,uint256 nonce)"
-        );
+        "UnstakeRequest(address user,uint256 positionId,uint256 deadline)"
+    );
+    bytes32 private constant PURCHASE_COVERAGE_TYPEHASH = keccak256(
+        "PurchaseCoverageRequest(uint256 coverId,address account,uint256 coverAmount,uint256 purchaseAmount,uint256 startDate,uint256 endDate,string description,uint256 deadline)"
+    );
 
     constructor() payable {
         _disableInitializers();
     }
 
     function initialize(
+        address _poolUnderwritter,
+        address _poolUnderwritterSigner,
         address _governor,
         address _poolAsset,
-        address _owner,
-        address _claimer
+        address _claimer,
+        uint _minUnderwriterPercentage, // 1000 is 10%
+        bool _isNewDepositsAccepted
     ) public initializer {
-        __Ownable_init(_owner);
+        __Ownable_init(_governor);
         __EIP712_init("Insurance Pool", "1");
 
-        governor = _governor;
+        poolUnderwriter =_poolUnderwritter;
+        poolUnderwriterSigner = _poolUnderwritterSigner;
         claimer = _claimer;
         poolAsset = IERC20(_poolAsset);
         totalAssetsStaked = 0;
         totalPoolShares = 0;
+        isNewDepositsAccepted = _isNewDepositsAccepted;
 
         possibleMinStakeTimes[60 * 60 * 24 * 90] = true;
         possibleMinStakeTimes[60 * 60 * 24 * 180] = true;
@@ -109,6 +128,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         episodsStartDate = block.timestamp;
         updatedRewardsAt = block.timestamp;
         timegapToUnstake = 1 weeks;
+        minUnderwriterPercentage = _minUnderwriterPercentage;
         // TODO choose correct values
         scheduledUnstakeFee = 10000;
         minimumStakeAmount = 100000000;
@@ -121,13 +141,11 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
     function updateContractLogic(
         address newImplementation,
         bytes memory data
-    ) external {
-        require(msg.sender == governor, "not authorized update call.");
+    ) onlyOwner external {
         upgradeToAndCall(newImplementation, data);
     }
 
-    function updateClaimer(address newClaimer) external {
-        require(msg.sender == governor, "not authorized update call.");
+    function updateClaimer(address newClaimer) onlyOwner external {
         require(newClaimer != address(0), "New claimer cannot be zero address");
         claimer = newClaimer;
     }
@@ -205,6 +223,25 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         }
     }
 
+    function setNewDepositsFlag(bool _isNewDepositsAccepted) external {
+        require(msg.sender == poolUnderwriter, "Access check fail.");
+        isNewDepositsAccepted = _isNewDepositsAccepted;
+    }
+
+    // Underwriter's part of the stake can't be less then 10%
+    function maxAmountUserToStake() public view returns(uint) {
+        if(totalPoolShares == 0) return 0;
+        return ((((userTotalShares[poolUnderwriter] * 10000)/minUnderwriterPercentage) - totalPoolShares) * totalAssetsStaked) / totalPoolShares;
+    }
+
+    // Underwriter's part of the stake can't be less then 10%
+    function maxUnderwriterToUnstake() public view returns(uint) {
+        if(userTotalShares[poolUnderwriter] == totalPoolShares) {
+            return totalAssetsStaked;
+        }
+        return ((userTotalShares[poolUnderwriter] - (totalPoolShares * minUnderwriterPercentage) / 10000) * totalAssetsStaked)/totalPoolShares;
+    }
+
     function joinPool(
         uint _amount,
         uint _minTimeStake
@@ -214,6 +251,8 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
             "Not valid minimum time staking option."
         );
         require(_amount >= minimumStakeAmount, "Too small staking amount.");
+        require(msg.sender == poolUnderwriter || _amount <= maxAmountUserToStake(), "Underwriter position can't be less than allowed.");
+        require(msg.sender == poolUnderwriter || isNewDepositsAccepted, "New deposits are not allowed.");
 
         poolAsset.transferFrom(msg.sender, address(this), _amount);
         _updateReward(address(msg.sender));
@@ -224,7 +263,6 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
                 startDate: block.timestamp,
                 minTimeStake: _minTimeStake,
                 shares: newShares,
-                initialAmount: _amount,
                 active: true
             });
 
@@ -257,33 +295,40 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         return true;
     }
 
-
-
     function _verifyUnstakeSignature(
-            address user,
-            uint256 positionId,
-            uint256 deadline,
-            uint256 nonce,
-            uint8 v,
-            bytes32 r,
-            bytes32 s
-        ) public view returns (bool) {
+        address user,
+        uint256 positionId,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) public view returns (bool) {
         require(block.timestamp <= deadline, "Signature expired");
-        require(nonce == addrNonces[user], "Invalid nonce");
 
         bytes32 structHash = keccak256(
             abi.encode(
                 UNSTAKE_TYPEHASH,
                 user,
                 positionId,
-                deadline,
-                nonce
+                deadline
             )
         );
 
         bytes32 hash = _hashTypedDataV4(structHash);
         address signer = ECDSA.recover(hash, v, r, s);
 
+        return signer == user;
+    }
+
+    function _verifySignature(
+        bytes32 structHash,
+        address user,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) public view returns (bool) {
+        bytes32 hash = _hashTypedDataV4(structHash);
+        address signer = ECDSA.recover(hash, v, r, s);
         return signer == user;
     }
 
@@ -297,20 +342,17 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
                     toUnstakeAddrs[i],
                     positionsIds[i],
                     deadlines[i],
-                    addrNonces[toUnstakeAddrs[i]],
                     v[i],
                     r[i],
                     s[i]
                 ),
                 InvalidSignature(i)
             );
-            addrNonces[toUnstakeAddrs[i]]++;
             uint withdrawAmount = _removePoolPosition(toUnstakeAddrs[i], positionsIds[i]);
             addressUnstakedSchdl[toUnstakeAddrs[i]] += withdrawAmount - scheduledUnstakeFee;
         }
         // Reward unstaker for work.
         poolAsset.transfer(msg.sender, scheduledUnstakeFee * toUnstakeAddrs.length);
-
     }
 
     function _removePoolPosition(address toRemove, uint positionId) internal returns(uint withdrawAmount) {
@@ -323,14 +365,14 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
             "Funds are timelocked, first lock."
         );
         require(
-            position.minTimeStake==0||
+            position.minTimeStake == 0||
             (block.timestamp - position.startDate) % position.minTimeStake <= timegapToUnstake,
             "Funds are timelocked, auto-restake lock.");
         _updateReward(toRemove);
 
-
         // First calculate withdraw based on shares
         withdrawAmount = (position.shares * totalAssetsStaked) / totalPoolShares;
+        require(toRemove != poolUnderwriter || withdrawAmount <= maxUnderwriterToUnstake(), "Underwriter position can't be less than allowed.");
 
         uint sharesToRedeem = position.shares;
 
@@ -353,8 +395,25 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         );
     }
 
-    function rewardPool(uint amount) external returns (bool completed) {
-        poolAsset.transferFrom(msg.sender, address(this), amount);
+    function executeClaim(
+        address receiver,
+        uint amount
+    ) external onlyClaimer returns (bool completed) {
+        _updateReward(address(0));
+        totalAssetsStaked -= amount;
+        poolAsset.transfer(receiver, amount);
+
+        emit ClaimExecuted(
+            msg.sender,
+            receiver,
+            amount,
+            totalAssetsStaked,
+            block.timestamp
+        );
+        return true;
+    }
+
+    function _rewardPool(uint amount) internal {
         _updateReward(address(0));
         uint currentEpisode = (block.timestamp - episodsStartDate) /
             episodeDuration;
@@ -374,23 +433,59 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
                 (episodeDuration -
                     (currentEpisodeFinishTime - block.timestamp))) /
             episodeDuration;
-        return true;
     }
 
-    function executeClaim(
-        address receiver,
-        uint amount
-    ) external onlyClaimer returns (bool completed) {
-        _updateReward(address(0));
-        totalAssetsStaked -= amount;
-        poolAsset.transfer(receiver, amount);
+    function purchaseCover(
+        uint coverId,
+        address coverageAccount,
+        uint coverageAmount,
+        uint purchaseAmount,
+        uint coverageStartDate,
+        uint coverageEndDate,
+        string calldata coverageDescription,
+        uint deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external returns (bool completed) {
+        require(coverIds[coverId] == false, "The nonce was already used.");
+        require(block.timestamp <= deadline, "Signarue expired.");
+        require(coverageStartDate < coverageEndDate, "Wrong dates.");
+        coverIds[coverId] = true;
 
-        emit ClaimExecuted(
+        bytes32 structHash = keccak256(
+            abi.encode(
+                PURCHASE_COVERAGE_TYPEHASH,
+                coverId,
+                coverageAccount,
+                coverageAmount,
+                purchaseAmount,
+                coverageStartDate,
+                coverageEndDate,
+                keccak256(bytes(coverageDescription)),
+                deadline
+            )
+        );
+        require(
+            _verifySignature(
+                structHash,
+                poolUnderwriterSigner,
+                v,
+                r,
+                s
+            ),
+            InvalidSignature(0)
+        );
+        poolAsset.transferFrom(msg.sender, address(this), purchaseAmount);
+        _rewardPool(purchaseAmount);
+
+        emit NewCover(
             msg.sender,
-            receiver,
-            amount,
-            totalAssetsStaked,
-            block.timestamp
+            coverageAccount,
+            coverageAmount,
+            coverageStartDate,
+            coverageEndDate,
+            coverageDescription
         );
         return true;
     }
