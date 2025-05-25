@@ -7,7 +7,6 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-
 event PoolJoined(
     address indexed user,
     uint positionId,
@@ -44,7 +43,6 @@ event NewCover(
     string description
 );
 
-
 struct PoolStake {
     uint startDate;
     uint minTimeStake;
@@ -73,7 +71,6 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
     address public poolUnderwriterSigner;
     bool public isNewDepositsAccepted;
 
-
     // Scheduled unstake part
     mapping(address => uint) public addressUnstakedSchdl;
     uint public timegapToUnstake;
@@ -90,7 +87,9 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
     mapping(address => uint) public userRewardPerTokenPaid;
     mapping(address => uint) public rewards;
 
+    // Coverage tracking (from HEAD branch)
     mapping(uint256 => bool) public coverIds;
+    
     bytes32 private constant UNSTAKE_TYPEHASH = keccak256(
         "UnstakeRequest(address user,uint256 positionId,uint256 deadline)"
     );
@@ -296,15 +295,38 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         return true;
     }
 
+    function _verifyUnstakeSignature(
+        address user,
+        uint256 positionId,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) public view returns (bool) {
+        require(block.timestamp <= deadline, "Signature expired");
 
+        bytes32 structHash = keccak256(
+            abi.encode(
+                UNSTAKE_TYPEHASH,
+                user,
+                positionId,
+                deadline
+            )
+        );
+
+        bytes32 hash = _hashTypedDataV4(structHash);
+        address signer = ECDSA.recover(hash, v, r, s);
+
+        return signer == user;
+    }
 
     function _verifySignature(
-            bytes32 structHash,
-            address user,
-            uint8 v,
-            bytes32 r,
-            bytes32 s
-        ) public view returns (bool) {
+        bytes32 structHash,
+        address user,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) public view returns (bool) {
         bytes32 hash = _hashTypedDataV4(structHash);
         address signer = ECDSA.recover(hash, v, r, s);
         return signer == user;
@@ -315,19 +337,11 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         uint8[] memory v, bytes32[] memory r, bytes32[] memory s
     ) external {
         for(uint i = 0; i < toUnstakeAddrs.length; i++) {
-            require(block.timestamp <= deadlines[i], "Signature expired");
-            bytes32 structHash = keccak256(
-                abi.encode(
-                    UNSTAKE_TYPEHASH,
+            require(
+                _verifyUnstakeSignature(
                     toUnstakeAddrs[i],
                     positionsIds[i],
-                    deadlines[i]
-                )
-            );
-            require(
-                _verifySignature(
-                    structHash,
-                    toUnstakeAddrs[i],
+                    deadlines[i],
                     v[i],
                     r[i],
                     s[i]
@@ -339,7 +353,6 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         }
         // Reward unstaker for work.
         poolAsset.transfer(msg.sender, scheduledUnstakeFee * toUnstakeAddrs.length);
-
     }
 
     function _removePoolPosition(address toRemove, uint positionId) internal returns(uint withdrawAmount) {
@@ -356,7 +369,6 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
             (block.timestamp - position.startDate) % position.minTimeStake <= timegapToUnstake,
             "Funds are timelocked, auto-restake lock.");
         _updateReward(toRemove);
-
 
         // First calculate withdraw based on shares
         withdrawAmount = (position.shares * totalAssetsStaked) / totalPoolShares;
