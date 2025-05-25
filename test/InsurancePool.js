@@ -83,20 +83,14 @@ describe("Insurance", async function () {
       );
 
       // Setup for claim testing
-      // Approve and stake SURS tokens for voting
-      await sursToken.approve(claimer, ethers.parseUnits("100", "ether"));
-      await claimer.stake(ethers.parseUnits("100", "ether"));
-
-      // Create and vote on claim
+      // Create and approve claim
       await claimer.createClaim(
-        otherAccount,
+        otherAccount.address,
+        insurancePool.target,
         "Test claim",
         ethers.parseUnits("3", "ether")
       );
-      await claimer.vote(0, true); // Vote in favor of claim
-
-      // Wait for voting period to end
-      await time.increase(7 * 24 * 60 * 60 + 1); // 1 week + 1 second
+      await claimer.approveClaim(0); // Approve claim as the approver (owner)
 
       // Execute the approved claim
       await claimer.executeClaim(0);
@@ -111,8 +105,30 @@ describe("Insurance", async function () {
         allowedUnderstaking
       );
 
-      // Test quit pool
-      await time.increase(33 * 24 * 60 * 60);
+      // Test quit pool - we need to be in a withdrawal window
+      // Withdrawal is allowed when (current_time - start_date) % 90_days <= 1_week
+      // Get position details to calculate the correct timing
+      const position = await insurancePool.getPoolPosition(owner, 0);
+      const startDate = Number(position.startDate);
+      const currentTime = await time.latest();
+
+      // Calculate how much time has passed since position start
+      const timeSinceStart = currentTime - startDate;
+
+      // Find the next withdrawal window  
+      // We want (timeSinceStart + additionalTime) % ninetyDays <= 7 days
+      const timeInCurrentCycle = timeSinceStart % ninetyDays;
+      let additionalTimeNeeded;
+
+      if (timeInCurrentCycle <= 7 * 24 * 60 * 60) {
+        // We're already in a withdrawal window
+        additionalTimeNeeded = 0;
+      } else {
+        // Move to the next withdrawal window
+        additionalTimeNeeded = ninetyDays - timeInCurrentCycle + 1; // +1 to be safely in window
+      }
+
+      await time.increase(additionalTimeNeeded);
       await insurancePool.quitPoolPosition(0);
       const finalPosition = await insurancePool.getPoolPosition(owner, 0);
       expect(finalPosition.active).to.be.false;
@@ -154,23 +170,19 @@ describe("Insurance", async function () {
         description: "Test coverage",
       });
 
-      // Setup for claim testing
-      await sursToken.approve(claimer, ethers.parseUnits("100", "ether"));
-      await claimer.stake(ethers.parseUnits("100", "ether"));
+      // Setup for claim testing - no need for staking anymore
 
       // Distribute reward after slashing
       await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 500);
 
-      // Create and vote on claim
+      // Create and approve claim
       await claimer.createClaim(
         poolUnderwriter.address,
+        insurancePool.target,
         "Test claim",
         ethers.parseUnits("10", "ether")
       );
-      await claimer.vote(0, true); // Vote in favor of claim
-
-      // Wait for voting period to end
-      await time.increase(7 * 24 * 60 * 60 + 1); // 1 week + 1 second
+      await claimer.approveClaim(0); // Approve claim as the approver (owner)
 
       // Execute the approved claim
       await claimer.executeClaim(0);
@@ -652,7 +664,7 @@ describe("Insurance", async function () {
   });
 
   describe("Claimer", async function () {
-    it("test claim voting and execution", async function () {
+    it("test claim approval and execution", async function () {
       const { btcToken, sursToken, insurancePool, claimer } = await loadFixture(
         basicFixture
       );
@@ -670,16 +682,10 @@ describe("Insurance", async function () {
         .connect(poolUnderwriter)
         .joinPool(ethers.parseUnits("100", "ether"), ninetyDays);
 
-      // Setup voting stakes
-      await sursToken.approve(
-        claimer,
-        ethers.parseUnits("200", "ether").toString()
-      );
-      await claimer.stake(ethers.parseUnits("200", "ether"));
-
       // Create claim
       await claimer.createClaim(
-        otherAccount,
+        otherAccount.address,
+        insurancePool.target,
         "Test claim",
         ethers.parseUnits("10", "ether")
       );
@@ -688,20 +694,23 @@ describe("Insurance", async function () {
       const claim = await claimer.getClaimDetails(0);
       expect(claim.proposer).to.equal(owner);
       expect(claim.description).to.equal("Test claim");
-      expect(claim.receiver).to.equal(otherAccount);
+      expect(claim.receiver).to.equal(otherAccount.address);
+      expect(claim.poolAddress).to.equal(insurancePool.target);
       expect(claim.amount).to.equal(ethers.parseUnits("10", "ether"));
+      expect(claim.approved).to.be.false;
       expect(claim.executed).to.be.false;
 
-      // Vote on claim
-      await claimer.vote(0, true);
-
-      // Try to execute before voting period ends - should fail
+      // Try to execute before approval - should fail
       await expect(claimer.executeClaim(0)).to.be.revertedWith(
-        "Voting period not ended"
+        "Claim not approved"
       );
 
-      // Wait for voting period to end
-      await time.increase(7 * 24 * 60 * 60 + 1);
+      // Approve claim as the approver
+      await claimer.approveClaim(0);
+
+      // Check that claim is now approved
+      const approvedClaim = await claimer.getClaimDetails(0);
+      expect(approvedClaim.approved).to.be.true;
 
       // Execute claim
       await claimer.executeClaim(0);

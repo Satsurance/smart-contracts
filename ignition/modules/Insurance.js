@@ -71,9 +71,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     [
       claimerLogic,
       m.encodeFunctionCall(claimerLogic, "initialize", [
-        sursTokenProxy,
-        insurancePoolProxy,
-        VOTING_PERIOD,
+        m.getAccount(0), // approver address (account 0)
       ]),
     ],
     { id: "ClaimerProxy" }
