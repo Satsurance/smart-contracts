@@ -3,7 +3,7 @@ const {
   loadFixture,
 } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
 const { signUnstakeRequest } = require("../utils/signatures");
-const { purchaseCoverage } = require("./utils.js");
+const { purchaseCoverage } = require("./helpers.js");
 
 const { expect } = require("chai");
 
