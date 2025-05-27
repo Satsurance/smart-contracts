@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
+import {IPoolFactory} from "./IPoolFactory.sol";
 
 event PoolJoined(
     uint startEpisode,
@@ -62,7 +63,9 @@ struct Episode {
 }
 
 
-contract InsurancePool is OwnableUpgradeable, EIP712Upgradeable {    
+contract InsurancePool is OwnableUpgradeable, EIP712Upgradeable {  
+    uint public poolId;
+
     address public claimer;
     IERC20 public poolAsset;
 
@@ -114,6 +117,7 @@ contract InsurancePool is OwnableUpgradeable, EIP712Upgradeable {
     ) public initializer {
         __Ownable_init(_governor);
         __EIP712_init("Insurance Pool", "1");
+        poolId = IPoolFactory(msg.sender).poolCount();
 
         poolUnderwriter =_poolUnderwritter;
         claimer = _claimer;

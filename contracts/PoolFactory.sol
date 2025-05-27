@@ -2,15 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {BeaconProxy} from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
-
-interface IPoolFactory {
-    event PoolCreated(uint indexed poolId, address indexed poolAddress);
-    event OperatorChanged(
-        address indexed oldOperator,
-        address indexed newOperator
-    );
-    event BeaconChanged(address indexed oldBeacon, address indexed newBeacon);
-}
+import "./IPoolFactory.sol";
 
 contract PoolFactory is IPoolFactory {
     address public operator;
