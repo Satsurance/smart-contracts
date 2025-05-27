@@ -147,13 +147,12 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         _;
     }
 
-    function episodeRewardRate(uint id, uint _updatedRewardsAt) public view returns (uint) {
+    function episodeRewardRate(uint id, uint _updatedRewardsAt, uint finishTime) public view returns (uint) {
         Episode storage ep = episodes[id];
         if(ep.assetsStaked == 0) {
             return 0;
         }
-        uint prevEpisodFinishTime = getEpisodeFinishTime(id);
-        return (poolRewardRate * (prevEpisodFinishTime - _updatedRewardsAt) * 1e18)/ep.episodeShares;
+        return (poolRewardRate * (finishTime - _updatedRewardsAt) * 1e18)/ep.episodeShares;
     }
 
 
@@ -170,13 +169,13 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
             uint prevEpisodFinishTime = getEpisodeFinishTime(i);
 
             Episode storage oldEp = episodes[i];
-            oldEp.rewardRatePerShare += episodeRewardRate(i, _updatedRewardsAt);
+            oldEp.rewardRatePerShare += episodeRewardRate(i, _updatedRewardsAt, prevEpisodFinishTime);
             _updatedRewardsAt = prevEpisodFinishTime;
 
             poolRewardRate -= episodes[i + 1].rewardDecrease;
         }
         Episode storage ep = episodes[currentEpisode];
-        ep.rewardRatePerShare += episodeRewardRate(currentEpisode, _updatedRewardsAt);
+        ep.rewardRatePerShare += episodeRewardRate(currentEpisode, _updatedRewardsAt, block.timestamp);
         updatedRewardsAt = block.timestamp;
     }
 

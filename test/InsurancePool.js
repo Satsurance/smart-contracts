@@ -195,7 +195,7 @@ describe("Insurance", async function () {
       );
     });
 
-    it.skip("test two stakers right proportion", async () => {
+    it("test two stakers right proportion", async () => {
       const { btcToken, insurancePool } = await loadFixture(basicFixture);
       const [owner, poolUnderwriter, poolUnderwriterSigner] =
         await ethers.getSigners();
@@ -211,10 +211,10 @@ describe("Insurance", async function () {
       await btcToken.approve(insurancePool, ethers.parseUnits("1", "ether"));
       await insurancePool
         .connect(poolUnderwriter)
-        .joinPool(ethers.parseUnits("21000000", "ether"), ninetyDays);
+        .joinPool(ethers.parseUnits("21000000", "ether"), 8);
       await insurancePool.joinPool(
         ethers.parseUnits("0.01", "ether"),
-        ninetyDays
+        8
       );
 
       const position_big = await insurancePool.getPoolPosition(
@@ -222,10 +222,10 @@ describe("Insurance", async function () {
         0
       );
       const position_small = await insurancePool.getPoolPosition(owner, 0);
-      expect(position_big[2]).to.equal(
+      expect(position_big[3]).to.equal(
         ethers.parseUnits("21000000", "ether").toString()
       );
-      expect(position_small[2]).to.equal(
+      expect(position_small[3]).to.equal(
         ethers.parseUnits("0.01", "ether").toString()
       );
 
@@ -238,13 +238,12 @@ describe("Insurance", async function () {
         coveredAccount: poolUnderwriter.address,
         purchaseAmount: ethers.parseUnits("1", "ether"),
         coverageAmount: ethers.parseUnits("1", "ether") * 100n,
-        duration: 99999999,
         description: "Test coverage",
       });
 
       await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 600);
-      const earnedAmountBig = await insurancePool.earned(poolUnderwriter);
-      const earnedAmountSmall = await insurancePool.earned(owner);
+      const earnedAmountBig = await insurancePool.earnedPosition.staticCall(poolUnderwriter, 0, [0, 1, 2, 3, 4, 5, 6, 7], false);
+      const earnedAmountSmall = await insurancePool.earnedPosition.staticCall(owner, 0, [0, 1, 2, 3, 4, 5, 6, 7], false);
 
       expect(earnedAmountBig).to.approximately(
         ethers.parseUnits("0.999999999523809606", "ether").toString(),
@@ -259,7 +258,7 @@ describe("Insurance", async function () {
       );
     });
 
-    it.skip("test two stakers right proportion different rewards time", async () => {
+    it("test two stakers right proportion different rewards time", async () => {
       const { btcToken, insurancePool } = await loadFixture(basicFixture);
       const [owner, poolUnderwriter, poolUnderwriterSigner, buyer] =
         await ethers.getSigners();
@@ -277,10 +276,10 @@ describe("Insurance", async function () {
       // Create positions
       await insurancePool
         .connect(poolUnderwriter)
-        .joinPool(ethers.parseUnits("21000000", "ether"), ninetyDays);
+        .joinPool(ethers.parseUnits("21000000", "ether"), 8);
       await insurancePool.joinPool(
         ethers.parseUnits("0.01", "ether"),
-        ninetyDays
+        8
       );
 
       // Verify initial positions and shares
@@ -314,7 +313,6 @@ describe("Insurance", async function () {
           coveredAccount: buyer.address,
           purchaseAmount: purchaseAmount,
           coverageAmount: purchaseAmount * 100n,
-          duration: 99999999,
           description: `Coverage purchase ${i + 1}`,
         });
 
@@ -326,8 +324,8 @@ describe("Insurance", async function () {
       await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 500);
 
       // Check earned rewards
-      const earnedAmountBig = await insurancePool.earned(poolUnderwriter);
-      const earnedAmountSmall = await insurancePool.earned(owner);
+      const earnedAmountBig = await insurancePool.earnedPosition.staticCall(poolUnderwriter, 0, [0, 1, 2, 3, 4, 5, 6, 7], false);
+      const earnedAmountSmall = await insurancePool.earnedPosition.staticCall(owner, 0, [0, 1, 2, 3, 4, 5, 6, 7], false);
 
       // Verify proportions match the share ratio
       expect(earnedAmountBig).to.approximately(
@@ -345,53 +343,8 @@ describe("Insurance", async function () {
       );
     });
 
-    it.skip("test auto-restake mechanics", async function () {
-      const { btcToken, insurancePool } = await loadFixture(basicFixture);
-      const [owner, poolUnderwriter] = await ethers.getSigners();
 
-      await btcToken.transfer(
-        poolUnderwriter,
-        ethers.parseUnits("1000", "ether")
-      );
-      await btcToken
-        .connect(poolUnderwriter)
-        .approve(insurancePool, ethers.parseUnits("1000", "ether"));
-      await insurancePool
-        .connect(poolUnderwriter)
-        .joinPool(ethers.parseUnits("100", "ether"), ninetyDays);
-
-      // Setup - create a 90-day staking position
-      await btcToken.approve(insurancePool, ethers.parseUnits("100", "ether"));
-      await insurancePool.joinPool(
-        ethers.parseUnits("100", "ether"),
-        ninetyDays
-      );
-
-      // Get initial position info
-      const position = await insurancePool.getPoolPosition(owner, 0);
-      const startDate = Number(position.startDate);
-
-      // Try to quit before first period - should fail
-      await time.increaseTo(startDate + ninetyDays - 1);
-      await expect(insurancePool.quitPoolPosition(0)).to.be.revertedWith(
-        "Funds are timelocked, first lock."
-      );
-
-      // Move to just after 90 days but outside timegap window (1 week + 1 day after period)
-      await time.increaseTo(
-        startDate + ninetyDays + 7 * 24 * 60 * 60 + 24 * 60 * 60
-      );
-      await expect(insurancePool.quitPoolPosition(0)).to.be.revertedWith(
-        "Funds are timelocked, auto-restake lock."
-      );
-
-      // Move to within timegap window of second period (90 days * 2)
-      await time.increaseTo(startDate + ninetyDays * 2 + 24 * 60 * 60); // 1 day into window
-      // Should succeed now as we're in the withdrawal window
-      await expect(insurancePool.quitPoolPosition(0)).to.not.be.reverted;
-    });
-
-    it.skip("test minimum stake amount edge cases", async function () {
+    it("test minimum stake amount edge cases", async function () {
       const { btcToken, insurancePool } = await loadFixture(basicFixture);
       const [owner, poolUnderwriter] = await ethers.getSigners();
 
@@ -405,7 +358,7 @@ describe("Insurance", async function () {
         .approve(insurancePool, ethers.parseUnits("1000", "ether"));
       await insurancePool
         .connect(poolUnderwriter)
-        .joinPool(ethers.parseUnits("100", "ether"), ninetyDays);
+        .joinPool(ethers.parseUnits("100", "ether"), 8);
 
       // Get minimum stake amount from contract
       const minimumStakeAmount = await insurancePool.minimumStakeAmount();
@@ -415,11 +368,11 @@ describe("Insurance", async function () {
 
       // Test amount 1 wei below minimum - should fail
       await expect(
-        insurancePool.joinPool(minimumStakeAmount - 1n, ninetyDays)
+        insurancePool.joinPool(minimumStakeAmount - 1n, 8)
       ).to.be.revertedWith("Too small staking amount.");
 
       // Test exactly minimum amount - should succeed
-      await expect(insurancePool.joinPool(minimumStakeAmount, ninetyDays)).to
+      await expect(insurancePool.joinPool(minimumStakeAmount, 8)).to
         .not.be.reverted;
 
       // Verify position was created correctly
@@ -427,243 +380,10 @@ describe("Insurance", async function () {
       expect(position.shares).to.equal(minimumStakeAmount);
       expect(position.active).to.be.true;
     });
-
-    describe("Scheduled Unstake", async function () {
-      it.skip("test scheduled unstake with funds recovery and rewards", async function () {
-        const { btcToken, insurancePool } = await loadFixture(basicFixture);
-        const [
-          owner,
-          poolUnderwriter,
-          poolUnderwriterSigner,
-          otherAccount,
-          scheduledExecutor,
-        ] = await ethers.getSigners();
-
-        // First, poolUnderwriter must stake to maintain the minimum percentage
-        await btcToken.transfer(
-          poolUnderwriter,
-          ethers.parseUnits("1000", "ether")
-        );
-        await btcToken
-          .connect(poolUnderwriter)
-          .approve(insurancePool, ethers.parseUnits("1000", "ether"));
-        await insurancePool
-          .connect(poolUnderwriter)
-          .joinPool(ethers.parseUnits("100", "ether"), ninetyDays);
-
-        // Setup - Create positions for two users
-        const stakeAmount = ethers.parseUnits("10", "ether"); // Smaller than underwriter to maintain ratio
-        await btcToken.transfer(otherAccount, stakeAmount);
-
-        // Approve and stake for both users
-        await btcToken.approve(insurancePool, stakeAmount);
-        await btcToken
-          .connect(otherAccount)
-          .approve(insurancePool, stakeAmount);
-
-        await insurancePool.joinPool(stakeAmount, ninetyDays);
-        await insurancePool
-          .connect(otherAccount)
-          .joinPool(stakeAmount, ninetyDays);
-
-        // Generate rewards through coverage purchase
-        await purchaseCoverage({
-          insurancePool,
-          poolAsset: btcToken,
-          buyer: owner,
-          underwriterSigner: poolUnderwriterSigner,
-          coveredAccount: owner.address,
-          purchaseAmount: ethers.parseUnits("1", "ether"),
-          coverageAmount: ethers.parseUnits("100", "ether"),
-          duration: 99999999,
-          description: "Test coverage",
-        });
-
-        // Wait for reward distribution and staking period
-        await time.increaseTo((await time.latest()) + ninetyDays + 1);
-
-        const deadline = (await time.latest()) + 3600; // 1 hour from now
-        const chainId = (await ethers.provider.getNetwork()).chainId;
-
-        // Generate signatures using helper function
-        const sig1 = await signUnstakeRequest(owner, insurancePool.target, {
-          user: owner.address,
-          positionId: 0,
-          deadline: deadline,
-          chainId: chainId,
-        });
-
-        const sig2 = await signUnstakeRequest(
-          otherAccount,
-          insurancePool.target,
-          {
-            user: otherAccount.address,
-            positionId: 0,
-            deadline: deadline,
-            chainId: chainId,
-          }
-        );
-
-        // Get initial balances and state
-        const initialBalance = await btcToken.balanceOf(scheduledExecutor);
-
-        // Execute scheduled unstake
-        await insurancePool
-          .connect(scheduledExecutor)
-          .scheduledUnstake(
-            [owner.address, otherAccount.address],
-            [0, 0],
-            [deadline, deadline],
-            [sig1.v, sig2.v],
-            [sig1.r, sig2.r],
-            [sig1.s, sig2.s]
-          );
-
-        // Verify fees sent to caller
-        const fee = await insurancePool.scheduledUnstakeFee();
-        const expectedFees = fee * 2n;
-        const actualFees =
-          (await btcToken.balanceOf(scheduledExecutor)) - initialBalance;
-        expect(actualFees).to.equal(expectedFees);
-
-        // Verify funds in addressUnstakedSchdl
-        const user1Scheduled = await insurancePool.addressUnstakedSchdl(owner);
-        const user2Scheduled = await insurancePool.addressUnstakedSchdl(
-          otherAccount
-        );
-        expect(user1Scheduled).to.be.gt(0);
-        expect(user2Scheduled).to.be.gt(0);
-
-        // Get unstaked
-        await insurancePool.getScheduledUnstaked();
-        expect(await insurancePool.addressUnstakedSchdl(owner)).to.equal(0);
-      });
-
-      it.skip("test mixed valid/invalid scheduled unstake", async function () {
-        const { btcToken, insurancePool } = await loadFixture(basicFixture);
-        const [
-          owner,
-          poolUnderwriter,
-          otherAccount,
-          thirdAccount,
-          fourthAccount,
-        ] = await ethers.getSigners();
-
-        // First, poolUnderwriter must stake to maintain the minimum percentage
-        await btcToken.transfer(
-          poolUnderwriter,
-          ethers.parseUnits("1000", "ether")
-        );
-        await btcToken
-          .connect(poolUnderwriter)
-          .approve(insurancePool, ethers.parseUnits("1000", "ether"));
-        await insurancePool
-          .connect(poolUnderwriter)
-          .joinPool(ethers.parseUnits("100", "ether"), ninetyDays);
-
-        // Setup - Create positions for three users
-        const stakeAmount = ethers.parseUnits("10", "ether"); // Smaller amount to maintain underwriter proportion
-        await btcToken.transfer(otherAccount, stakeAmount);
-        await btcToken.transfer(thirdAccount, stakeAmount);
-
-        // Approve and stake for all users
-        await btcToken.approve(insurancePool, stakeAmount);
-        await btcToken
-          .connect(otherAccount)
-          .approve(insurancePool, stakeAmount);
-        await btcToken
-          .connect(thirdAccount)
-          .approve(insurancePool, stakeAmount);
-
-        await insurancePool.joinPool(stakeAmount, ninetyDays);
-        await insurancePool
-          .connect(otherAccount)
-          .joinPool(stakeAmount, ninetyDays);
-        await insurancePool
-          .connect(thirdAccount)
-          .joinPool(stakeAmount, ninetyDays);
-
-        // Move timeline past minimum stake time
-        await time.increase(ninetyDays);
-
-        // Get deadline and chainId
-        const deadline = (await time.latest()) + 3600; // 1 hour from now
-        const chainId = (await ethers.provider.getNetwork()).chainId;
-
-        // Generate two valid signatures and one invalid
-        const sig1 = await signUnstakeRequest(owner, insurancePool.target, {
-          user: owner.address,
-          positionId: 0,
-          deadline: deadline,
-          chainId: chainId,
-        });
-        const sig2 = await signUnstakeRequest(
-          otherAccount,
-          insurancePool.target,
-          {
-            user: otherAccount.address,
-            positionId: 0,
-            deadline: deadline,
-            chainId: chainId,
-          }
-        );
-        // Invalid signature - fourthAccount signing for thirdAccount's position
-        const invalidSig = await signUnstakeRequest(
-          fourthAccount,
-          insurancePool.target,
-          {
-            user: thirdAccount.address,
-            positionId: 0,
-            deadline: deadline,
-            chainId: chainId,
-          }
-        );
-
-        // Initial state
-        const initialPoolShares = await insurancePool.totalPoolShares();
-        const initialAssets = await insurancePool.totalAssetsStaked();
-
-        // Attempt batch unstake with mixed signatures
-        await expect(
-          insurancePool.scheduledUnstake(
-            [owner.address, otherAccount.address, thirdAccount.address],
-            [0, 0, 0],
-            [deadline, deadline, deadline],
-            [sig1.v, sig2.v, invalidSig.v],
-            [sig1.r, sig2.r, invalidSig.r],
-            [sig1.s, sig2.s, invalidSig.s]
-          )
-        )
-          .to.be.revertedWithCustomError(insurancePool, "InvalidSignature")
-          .withArgs(2);
-
-        // Verify state remains unchanged
-        const finalPoolShares = await insurancePool.totalPoolShares();
-        const finalAssets = await insurancePool.totalAssetsStaked();
-
-        expect(finalPoolShares).to.equal(initialPoolShares);
-        expect(finalAssets).to.equal(initialAssets);
-
-        // Verify all positions still active
-        const position1 = await insurancePool.getPoolPosition(owner.address, 0);
-        const position2 = await insurancePool.getPoolPosition(
-          otherAccount.address,
-          0
-        );
-        const position3 = await insurancePool.getPoolPosition(
-          thirdAccount.address,
-          0
-        );
-
-        expect(position1.active).to.be.true;
-        expect(position2.active).to.be.true;
-        expect(position3.active).to.be.true;
-      });
-    });
   });
 
   describe("Claimer", async function () {
-    it.skip("test claim approval and execution", async function () {
+    it("test claim approval and execution", async function () {
       const { btcToken, sursToken, insurancePool, claimer } = await loadFixture(
         basicFixture
       );
@@ -679,7 +399,7 @@ describe("Insurance", async function () {
         .approve(insurancePool, ethers.parseUnits("1000", "ether"));
       await insurancePool
         .connect(poolUnderwriter)
-        .joinPool(ethers.parseUnits("100", "ether"), ninetyDays);
+        .joinPool(ethers.parseUnits("100", "ether"), 8);
 
       // Create claim
       await claimer.createClaim(
