@@ -12,7 +12,6 @@ async function purchaseCoverage({
     coveredAccount,
     purchaseAmount,
     coverageAmount,
-    duration,
     description,
 }) {
     // Get chainId for signature
@@ -28,7 +27,7 @@ async function purchaseCoverage({
 
     // Setup coverage dates
     const startDate = await time.latest();
-    const endDate = startDate + duration;
+    const endDate = startDate + 1000;
 
     // Set deadline 1 hour in the future
     const deadline = startDate + 3600;
@@ -46,12 +45,6 @@ async function purchaseCoverage({
         chainId,
     };
 
-    // Get signature from underwriter
-    const { v, r, s } = await signCoveragePurchase(
-        underwriterSigner,
-        insurancePool.target,
-        params
-    );
 
     // Approve token transfer if needed
     const buyerAddress = await buyer.getAddress();
@@ -76,10 +69,6 @@ async function purchaseCoverage({
             startDate,
             endDate,
             description,
-            deadline,
-            v,
-            r,
-            s
         );
 }
 

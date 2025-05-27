@@ -41,14 +41,12 @@ describe("Insurance", async function () {
       console.log("currentEpisode", currentEpisode);
       await insurancePool
         .connect(poolUnderwriter)
-        .joinPool(ethers.parseUnits("100", "ether"), ninetyDays, 8);
+        .joinPool(ethers.parseUnits("100", "ether"), 8);
 
       // Now owner can make a position
       await btcToken.approve(insurancePool, ethers.parseUnits("2000", "ether"));
       await insurancePool.joinPool(
-        ethers.parseUnits("10", "ether"),
-        ninetyDays, 8
-      );
+        ethers.parseUnits("10", "ether"), 8);
 
       const init_position = await insurancePool.getPoolPosition(owner, 0);
       const total_assets = await insurancePool.totalAssetsStaked();
@@ -70,7 +68,6 @@ describe("Insurance", async function () {
         coveredAccount: otherAccount.address,
         purchaseAmount: minimumRewardAmount,
         coverageAmount: minimumRewardAmount * 100n,
-        duration: 99999999,
         description: "",
       });
 
@@ -107,36 +104,37 @@ describe("Insurance", async function () {
         allowedUnderstaking
       );
 
-      // Test quit pool - we need to be in a withdrawal window
-      // Withdrawal is allowed when (current_time - start_date) % 90_days <= 1_week
-      // Get position details to calculate the correct timing
+
       const position = await insurancePool.getPoolPosition(owner, 0);
-      const startDate = Number(position.startDate);
-      const currentTime = await time.latest();
+      const episodeDuration = await insurancePool.episodeDuration();
+      const additionalTimeNeeded = episodeDuration * BigInt(8);
 
-      // Calculate how much time has passed since position start
-      const timeSinceStart = currentTime - startDate;
+      // Get owner's balance before quitting the pool
+      const balanceBeforeQuit = await btcToken.balanceOf(owner);
 
-      // Find the next withdrawal window  
-      // We want (timeSinceStart + additionalTime) % ninetyDays <= 7 days
-      const timeInCurrentCycle = timeSinceStart % ninetyDays;
-      let additionalTimeNeeded;
-
-      if (timeInCurrentCycle <= 7 * 24 * 60 * 60) {
-        // We're already in a withdrawal window
-        additionalTimeNeeded = 0;
-      } else {
-        // Move to the next withdrawal window
-        additionalTimeNeeded = ninetyDays - timeInCurrentCycle + 1; // +1 to be safely in window
-      }
+      // Calculate expected amount to receive (position value after slashing + rewards)
+      const expectedPositionValue = ethers.parseUnits((((110 - 3) / 110) * 10).toString(), "ether");
+      const earnedRewards = await insurancePool.earnedPosition.staticCall(owner, 0, [0, 1, 2, 3, 4, 5, 6, 7], false);
+      const expectedTotalAmount = expectedPositionValue + earnedRewards;
 
       await time.increase(additionalTimeNeeded);
       await insurancePool.quitPoolPosition(0);
+
+      // Get owner's balance after quitting the pool
+      const balanceAfterQuit = await btcToken.balanceOf(owner);
+      const actualReceivedAmount = balanceAfterQuit - balanceBeforeQuit;
+
       const finalPosition = await insurancePool.getPoolPosition(owner, 0);
       expect(finalPosition.active).to.be.false;
+
+      // Check that the user received the expected amount
+      expect(actualReceivedAmount).to.approximately(
+        expectedTotalAmount,
+        allowedUnderstaking
+      );
     });
 
-    it.skip("test slashing during staking effects", async () => {
+    it("test slashing during staking effects", async () => {
       const { btcToken, sursToken, insurancePool, claimer } = await loadFixture(
         basicFixture
       );
@@ -153,7 +151,7 @@ describe("Insurance", async function () {
         .approve(insurancePool, ethers.parseUnits("100", "ether"));
       await insurancePool
         .connect(poolUnderwriter)
-        .joinPool(ethers.parseUnits("100", "ether"), ninetyDays);
+        .joinPool(ethers.parseUnits("100", "ether"), 8);
 
       // Generate rewards through coverage purchase
       const purchaseAmount = ethers.parseUnits("1", "ether");
@@ -168,14 +166,13 @@ describe("Insurance", async function () {
         coveredAccount: poolUnderwriter.address,
         purchaseAmount: purchaseAmount,
         coverageAmount: purchaseAmount * 100n,
-        duration: 99999999,
         description: "Test coverage",
       });
 
       // Setup for claim testing - no need for staking anymore
 
       // Distribute reward after slashing
-      await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 500);
+      await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 800);
 
       // Create and approve claim
       await claimer.createClaim(
@@ -189,7 +186,7 @@ describe("Insurance", async function () {
       // Execute the approved claim
       await claimer.executeClaim(0);
 
-      const earnedAmount = await insurancePool.earned(poolUnderwriter.address);
+      const earnedAmount = await insurancePool.earnedPosition.staticCall(poolUnderwriter, 0, [0, 1, 2, 3, 4, 5, 6, 7], false);
 
       // Should receive full rewards since underwriter is the only staker
       expect(earnedAmount).to.approximately(

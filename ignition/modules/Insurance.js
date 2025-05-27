@@ -51,7 +51,6 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
       insurancePoolLogic,
       m.encodeFunctionCall(insurancePoolLogic, "initialize", [
         m.getAccount(1),
-        m.getAccount(2),
         m.getAccount(0),
         btcToken,
         ethers.ZeroAddress, // temporary claimer address
