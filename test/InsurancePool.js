@@ -3,7 +3,7 @@ const {
   loadFixture,
 } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
 const { signUnstakeRequest } = require("../utils/signatures");
-const { purchaseCoverage } = require("./helpers.js");
+const { purchaseCoverage, getEpisodeRangeForPosition } = require("./helpers.js");
 
 const { expect } = require("chai");
 
@@ -73,7 +73,9 @@ describe("Insurance", async function () {
 
       // It is required some time to have all the rewards distributed.
       await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 500);
-      const earnedAmount = await insurancePool.earnedPosition.staticCall(owner, 0, [0, 1, 2, 3, 4, 5, 6, 7], false);
+      const ownerPosition = await insurancePool.getPoolPosition(owner, 0);
+      const episodeRange = getEpisodeRangeForPosition(ownerPosition);
+      const earnedAmount = await insurancePool.earnedPosition.staticCall(owner, 0, episodeRange, false);
       console.log("earnedAmount", earnedAmount);
       // There are some precision errors
       expect(earnedAmount).to.approximately(
@@ -114,7 +116,9 @@ describe("Insurance", async function () {
 
       // Calculate expected amount to receive (position value after slashing + rewards)
       const expectedPositionValue = ethers.parseUnits((((110 - 3) / 110) * 10).toString(), "ether");
-      const earnedRewards = await insurancePool.earnedPosition.staticCall(owner, 0, [0, 1, 2, 3, 4, 5, 6, 7], false);
+      const ownerPositionBeforeQuit = await insurancePool.getPoolPosition(owner, 0);
+      const episodeRangeBeforeQuit = getEpisodeRangeForPosition(ownerPositionBeforeQuit);
+      const earnedRewards = await insurancePool.earnedPosition.staticCall(owner, 0, episodeRangeBeforeQuit, false);
       const expectedTotalAmount = expectedPositionValue + earnedRewards;
 
       await time.increase(additionalTimeNeeded);
@@ -186,7 +190,9 @@ describe("Insurance", async function () {
       // Execute the approved claim
       await claimer.executeClaim(0);
 
-      const earnedAmount = await insurancePool.earnedPosition.staticCall(poolUnderwriter, 0, [0, 1, 2, 3, 4, 5, 6, 7], false);
+      const underwriterPosition = await insurancePool.getPoolPosition(poolUnderwriter, 0);
+      const episodeRangeForRewards = getEpisodeRangeForPosition(underwriterPosition);
+      const earnedAmount = await insurancePool.earnedPosition.staticCall(poolUnderwriter, 0, episodeRangeForRewards, false);
 
       // Should receive full rewards since underwriter is the only staker
       expect(earnedAmount).to.approximately(
@@ -242,8 +248,10 @@ describe("Insurance", async function () {
       });
 
       await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 600);
-      const earnedAmountBig = await insurancePool.earnedPosition.staticCall(poolUnderwriter, 0, [0, 1, 2, 3, 4, 5, 6, 7], false);
-      const earnedAmountSmall = await insurancePool.earnedPosition.staticCall(owner, 0, [0, 1, 2, 3, 4, 5, 6, 7], false);
+      const positionBig = await insurancePool.getPoolPosition(poolUnderwriter, 0);
+      const episodeRange = getEpisodeRangeForPosition(positionBig); // Both positions created at same time, same episode range
+      const earnedAmountBig = await insurancePool.earnedPosition.staticCall(poolUnderwriter, 0, episodeRange, false);
+      const earnedAmountSmall = await insurancePool.earnedPosition.staticCall(owner, 0, episodeRange, false);
 
       expect(earnedAmountBig).to.approximately(
         ethers.parseUnits("0.999999999523809606", "ether").toString(),
@@ -324,8 +332,10 @@ describe("Insurance", async function () {
       await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 500);
 
       // Check earned rewards
-      const earnedAmountBig = await insurancePool.earnedPosition.staticCall(poolUnderwriter, 0, [0, 1, 2, 3, 4, 5, 6, 7], false);
-      const earnedAmountSmall = await insurancePool.earnedPosition.staticCall(owner, 0, [0, 1, 2, 3, 4, 5, 6, 7], false);
+      const positionBigDifferentTime = await insurancePool.getPoolPosition(poolUnderwriter, 0);
+      const episodeRange = getEpisodeRangeForPosition(positionBigDifferentTime); // Both positions created at same time, same episode range
+      const earnedAmountBig = await insurancePool.earnedPosition.staticCall(poolUnderwriter, 0, episodeRange, false);
+      const earnedAmountSmall = await insurancePool.earnedPosition.staticCall(owner, 0, episodeRange, false);
 
       // Verify proportions match the share ratio
       expect(earnedAmountBig).to.approximately(

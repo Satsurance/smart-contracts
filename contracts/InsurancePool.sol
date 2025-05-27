@@ -85,10 +85,9 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
     uint public minimumStakeAmount;
 
     // Episodes functions
-    uint public episodsStartDate;
     uint public episodeDuration;
     mapping(uint => Episode) public episodes;
-    uint256 public constant MAX_ACTIVE_EPISODES = 9;
+    uint256 public constant MAX_ACTIVE_EPISODES = 8;
 
 
     uint public updatedRewardsAt;
@@ -119,7 +118,6 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         isNewDepositsAccepted = _isNewDepositsAccepted;
 
         episodeDuration = 91 days;
-        episodsStartDate = block.timestamp;
         updatedRewardsAt = block.timestamp;
         minUnderwriterPercentage = _minUnderwriterPercentage;
         // TODO choose correct values
@@ -161,8 +159,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
             return;
         }
         uint currentEpisode = getCurrentEpisode();
-        uint lastUpdatedEpisode = (updatedRewardsAt - episodsStartDate) /
-            episodeDuration;
+        uint lastUpdatedEpisode = updatedRewardsAt / episodeDuration;
 
         uint _updatedRewardsAt = updatedRewardsAt;
         for (uint i = lastUpdatedEpisode; i < currentEpisode; i++) {
@@ -247,7 +244,8 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         require(_amount >= minimumStakeAmount, "Too small staking amount.");
         require(msg.sender == poolUnderwriter || _amount <= maxAmountUserToStake(), "Underwriter position can't be less than allowed.");
         require(msg.sender == poolUnderwriter || isNewDepositsAccepted, "New deposits are not allowed.");
-        require(_episodesToStake < MAX_ACTIVE_EPISODES, "Too long staking time.");
+        require(_episodesToStake <= MAX_ACTIVE_EPISODES, "Too long staking time.");
+        require(_episodesToStake > 0, "Too short staking time.");
 
         poolAsset.transferFrom(msg.sender, address(this), _amount);
         _updateEpisodesState();
@@ -267,7 +265,7 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
             positions[msg.sender][newPositionId] = PoolStake({
                 startDate: block.timestamp,
                 startEpisode: currentEpisode,
-                endEpisode: currentEpisode + _episodesToStake,
+                endEpisode: currentEpisode + _episodesToStake - 1,
                 shares: newShares,
                 active: true
             });
@@ -412,14 +410,14 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
     }
 
     function getCurrentEpisode() public view returns (uint) {
-        return (block.timestamp - episodsStartDate) / episodeDuration;
+        return (block.timestamp) / episodeDuration;
     }
 
     function getEpisodeStartTime(uint episodeId) public view returns (uint) {
-        return episodeId * episodeDuration + episodsStartDate;
+        return episodeId * episodeDuration;
     }
 
     function getEpisodeFinishTime(uint episodeId) public view returns (uint) {
-        return (episodeId + 1) * episodeDuration + episodsStartDate;
+        return (episodeId + 1) * episodeDuration;
     }
 }

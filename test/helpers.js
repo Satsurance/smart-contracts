@@ -72,6 +72,19 @@ async function purchaseCoverage({
         );
 }
 
+/**
+ * Get episode range for a position based on its start and end episodes
+ * @param {Object} position - Position object from getPoolPosition
+ * @returns {Array} Array of episode IDs
+ */
+function getEpisodeRangeForPosition(position) {
+    const startEpisode = Number(position.startEpisode);
+    const endEpisode = Number(position.endEpisode);
+    const length = endEpisode - startEpisode + 1;
+    return Array.from({ length }, (_, i) => startEpisode + i);
+}
+
 module.exports = {
     purchaseCoverage,
+    getEpisodeRangeForPosition,
 }; 
