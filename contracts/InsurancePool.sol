@@ -3,7 +3,6 @@ pragma solidity ^0.8.20;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 
 event PoolJoined(
@@ -63,7 +62,7 @@ struct Episode {
 }
 
 
-contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable {
+contract InsurancePool is OwnableUpgradeable, EIP712Upgradeable {    
     address public claimer;
     IERC20 public poolAsset;
 
@@ -95,6 +94,12 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
     // Coverage tracking (from HEAD branch)
     mapping(uint256 => bool) public coverIds;
 
+    /**
+     * @dev Storage gap to allow for future upgrades
+     * This reserves storage slots for future variables
+     */
+    uint256[50] private __gap;
+
     constructor() payable {
         _disableInitializers();
     }
@@ -122,17 +127,6 @@ contract InsurancePool is OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable
         minUnderwriterPercentage = _minUnderwriterPercentage;
         // TODO choose correct values
         minimumStakeAmount = 100000000;
-    }
-
-    function _authorizeUpgrade(
-        address newImplementation
-    ) internal virtual override(UUPSUpgradeable) onlyOwner {}
-
-    function updateContractLogic(
-        address newImplementation,
-        bytes memory data
-    ) onlyOwner external {
-        upgradeToAndCall(newImplementation, data);
     }
 
     function updateClaimer(address newClaimer) onlyOwner external {

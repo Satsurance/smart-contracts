@@ -41,25 +41,22 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   let governor_c = m.contract("SatsuranceGovernor", [sursTokenProxy, timelock]);
   m.call(timelock, "grantRole", [PROPOSER_ROLE_ID, governor_c]);
 
-  // Deploy upgradable Insurance Pool (initially with zero address for claimer)
+  // Deploy InsurancePool implementation
   let insurancePoolLogic = m.contract("InsurancePool", [], {
     id: "insurancePoolLogic",
   });
-  let insurancePoolProxy = m.contract(
-    "ERC1967Proxy",
-    [
-      insurancePoolLogic,
-      m.encodeFunctionCall(insurancePoolLogic, "initialize", [
-        m.getAccount(1),
-        m.getAccount(0),
-        btcToken,
-        ethers.ZeroAddress, // temporary claimer address
-        1000, // 10%
-        true,
-      ]),
-    ],
-    { id: "InsurancePoolProxy" }
-  );
+
+  // Deploy InsurancePoolBeacon with the implementation
+  let insurancePoolBeacon = m.contract("UpgradeableBeacon", [
+    insurancePoolLogic,
+    timelock, // timelock as beacon owner
+  ]);
+
+  // Deploy PoolFactory
+  let poolFactory = m.contract("PoolFactory", [m.getAccount(0)]); // deployer as initial operator
+
+  // Set beacon in factory
+  m.call(poolFactory, "setBeacon", [insurancePoolBeacon]);
 
   // Deploy upgradable Claimer
   let claimerLogic = m.contract("Claimer", [], {
@@ -76,11 +73,26 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     { id: "ClaimerProxy" }
   );
 
-  // Set Claimer address in InsurancePool
-  const insurancePool = m.contractAt("InsurancePool", insurancePoolProxy);
-  m.call(insurancePool, "transferOwnership", [timelock], {
-    after: [m.call(insurancePool, "updateClaimer", [claimerProxy])],
-  });
+  // Prepare initialization data for InsurancePool
+  const initData = m.encodeFunctionCall(insurancePoolLogic, "initialize", [
+    m.getAccount(1), // poolUnderwriter
+    timelock, // governor (owner)
+    btcToken,
+    claimerProxy, // claimer address
+    1000, // 10%
+    true,
+  ]);
+
+  // Create InsurancePool through factory
+  const createPoolCall = m.call(poolFactory, "create", [initData]);
+
+  // Get the created pool address and create contract instance
+  const insurancePoolAddress = m.readEventArgument(
+    createPoolCall,
+    "PoolCreated",
+    "poolAddress"
+  );
+  const insurancePool = m.contractAt("InsurancePool", insurancePoolAddress);
 
   // Set contract ABIs to proxies
   const sursToken = m.contractAt("SursToken", sursTokenProxy);
@@ -96,6 +108,8 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     governor_c,
     timelock,
     claimer,
+    poolFactory,
+    insurancePoolBeacon,
   };
 });
 

@@ -10,7 +10,6 @@ const { expect } = require("chai");
 const InsuranceSetup = require("../ignition/modules/Insurance.js");
 
 const allowedUnderstaking = ethers.parseUnits("0.000000001", "ether"); // 0.01 cent if bitcoin costs 100k
-const ninetyDays = 60 * 60 * 24 * 90;
 
 describe("Insurance", async function () {
   // We define a fixture to reuse the same setup in every test.
@@ -37,8 +36,6 @@ describe("Insurance", async function () {
       await btcToken
         .connect(poolUnderwriter)
         .approve(insurancePool, ethers.parseUnits("1000", "ether"));
-      const currentEpisode = await insurancePool.getCurrentEpisode();
-      console.log("currentEpisode", currentEpisode);
       await insurancePool
         .connect(poolUnderwriter)
         .joinPool(ethers.parseUnits("100", "ether"), 8);
@@ -76,7 +73,6 @@ describe("Insurance", async function () {
       const ownerPosition = await insurancePool.getPoolPosition(owner, 0);
       const episodeRange = getEpisodeRangeForPosition(ownerPosition);
       const earnedAmount = await insurancePool.earnedPosition.staticCall(owner, 0, episodeRange, false);
-      console.log("earnedAmount", earnedAmount);
       // There are some precision errors
       expect(earnedAmount).to.approximately(
         (minimumRewardAmount * 10n) / 110n, // Adjust expected rewards based on share proportion
