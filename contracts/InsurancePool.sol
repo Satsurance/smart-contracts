@@ -52,14 +52,19 @@ struct PoolStake {
 }
 
 struct Episode {
-    uint startDate;
-    uint endDate;
     uint amountCovered;
     uint episodeShares;
     uint assetsStaked;
-    mapping(address=>mapping(uint=>uint)) userPositionsShares;
     uint rewardDecrease;
     uint rewardRatePerShare;
+}
+
+struct Product {
+    string name;
+    uint annualPremium;
+    uint maxCoverageDuration;
+    uint maxCoverageAmount;
+
 }
 
 
@@ -79,6 +84,9 @@ contract InsurancePool is OwnableUpgradeable, EIP712Upgradeable {
     mapping(address => uint) public positionCounter;
     mapping(address => uint) public userTotalShares;
 
+    // User position shares per episode: episodeId => user => positionId => shares
+    mapping(uint => mapping(address => mapping(uint => uint))) public userPositionsShares;
+
     // Underwriters
     uint public minUnderwriterPercentage;
     address public poolUnderwriter;
@@ -89,7 +97,7 @@ contract InsurancePool is OwnableUpgradeable, EIP712Upgradeable {
     // Episodes functions
     uint public episodeDuration;
     mapping(uint => Episode) public episodes;
-    uint256 public constant MAX_ACTIVE_EPISODES = 8;
+    uint256 public constant MAX_ACTIVE_EPISODES = 24;
 
 
     uint public updatedRewardsAt;
@@ -126,7 +134,7 @@ contract InsurancePool is OwnableUpgradeable, EIP712Upgradeable {
         totalPoolShares = 0;
         isNewDepositsAccepted = _isNewDepositsAccepted;
 
-        episodeDuration = 91 days;
+        episodeDuration = 91 days/3;
         updatedRewardsAt = block.timestamp;
         minUnderwriterPercentage = _minUnderwriterPercentage;
         // TODO choose correct values
@@ -185,7 +193,8 @@ contract InsurancePool is OwnableUpgradeable, EIP712Upgradeable {
                 break;
             }
             Episode storage ep = episodes[episodesId[i]];
-            require(ep.userPositionsShares[_account][_positionId] > 0, "The account is not a part of the episode.");
+            require(position.endEpisode >= episodesId[i], "The account is not a part of the episode.");
+            require(position.startEpisode <= episodesId[i], "The account is not a part of the episode.");
             
             reward += (position.shares * (ep.rewardRatePerShare - positionRewardPerShare[_account][_positionId][i]));
             if(update) {
@@ -244,29 +253,41 @@ contract InsurancePool is OwnableUpgradeable, EIP712Upgradeable {
         require(msg.sender == poolUnderwriter || isNewDepositsAccepted, "New deposits are not allowed.");
         require(_episodesToStake <= MAX_ACTIVE_EPISODES, "Too long staking time.");
         require(_episodesToStake > 0, "Too short staking time.");
+        require(_episodesToStake % 3 == 0, "Staking time must be a multiple of 3.");
 
         poolAsset.transferFrom(msg.sender, address(this), _amount);
         _updateEpisodesState();
 
+        
         uint newPositionId = positionCounter[msg.sender]++;
         uint currentEpisode = getCurrentEpisode();
+        uint positionEndEpisode = currentEpisode + _episodesToStake - 1;
         uint newShares = totalPoolShares == 0 ? _amount : (_amount * totalPoolShares) / totalAssetsStaked;
         {
-            for(uint i = currentEpisode; i < currentEpisode + _episodesToStake; i++) {
+            for(uint i = currentEpisode; i < positionEndEpisode; i++) {
                 Episode storage ep = episodes[i];
                 uint newEpisodeShares = ep.episodeShares == 0? _amount: (_amount * ep.episodeShares)/ep.assetsStaked;
                 ep.episodeShares += newEpisodeShares;
-                ep.userPositionsShares[msg.sender][newPositionId] = newEpisodeShares;
                 ep.assetsStaked += _amount;
             }
+            Episode storage lastEpisode = episodes[positionEndEpisode];
+            uint lastEpisodeShares = lastEpisode.episodeShares == 0? _amount: (_amount * lastEpisode.episodeShares)/lastEpisode.assetsStaked;
+            lastEpisode.assetsStaked += _amount;
+            lastEpisode.episodeShares += lastEpisodeShares;
+            // Store only once for the withdraw episode.
+            userPositionsShares[positionEndEpisode][msg.sender][newPositionId] = lastEpisodeShares;
+
+            // Set reward rate for the current episode.
+            positionRewardPerShare[msg.sender][newPositionId][currentEpisode] = episodes[currentEpisode].rewardRatePerShare;
         }
-            positions[msg.sender][newPositionId] = PoolStake({
-                startDate: block.timestamp,
-                startEpisode: currentEpisode,
-                endEpisode: currentEpisode + _episodesToStake - 1,
-                shares: newShares,
-                active: true
-            });
+
+        positions[msg.sender][newPositionId] = PoolStake({
+            startDate: block.timestamp,
+            startEpisode: currentEpisode,
+            endEpisode: positionEndEpisode,
+            shares: newShares,
+            active: true
+        });
 
         userTotalShares[msg.sender] += newShares;
         totalPoolShares += newShares;
@@ -274,7 +295,7 @@ contract InsurancePool is OwnableUpgradeable, EIP712Upgradeable {
 
         emit PoolJoined(
             currentEpisode,
-            currentEpisode + _episodesToStake,
+            positionEndEpisode,
             msg.sender,
             newPositionId,
             _amount,
@@ -307,11 +328,15 @@ contract InsurancePool is OwnableUpgradeable, EIP712Upgradeable {
 
         uint prewards = earnedPosition(toRemove, positionId,episodesList, false);
         // First calculate withdraw based on shares in the last episode
-        Episode storage ep = episodes[position.endEpisode - 1];
-        withdrawAmount = (ep.userPositionsShares[toRemove][positionId]*ep.assetsStaked)/ ep.episodeShares;
+        Episode storage ep = episodes[position.endEpisode];
+        withdrawAmount = (userPositionsShares[position.endEpisode][toRemove][positionId]*ep.assetsStaked)/ ep.episodeShares;
         // withdrawAmount = (position.shares * totalAssetsStaked) / totalPoolShares;
         require(toRemove != poolUnderwriter || withdrawAmount <= maxUnderwriterToUnstake(), "Underwriter position can't be less than allowed.");
 
+        // New removals - only subtract the original stake amount, not the rewards
+        ep.assetsStaked -= withdrawAmount;
+        ep.episodeShares -= userPositionsShares[position.endEpisode][toRemove][positionId];
+        userPositionsShares[position.endEpisode][toRemove][positionId] = 0;
 
         // Old removals
         uint sharesToRedeem = position.shares;
@@ -322,10 +347,7 @@ contract InsurancePool is OwnableUpgradeable, EIP712Upgradeable {
         // Add leftovers to withdraw
         withdrawAmount += prewards;
 
-        // New removals
-        ep.assetsStaked -= withdrawAmount;
-        ep.episodeShares -= ep.userPositionsShares[toRemove][positionId];
-        ep.userPositionsShares[toRemove][positionId] = 0;
+        
 
         emit PoolQuitted(
             toRemove,
@@ -343,9 +365,9 @@ contract InsurancePool is OwnableUpgradeable, EIP712Upgradeable {
     ) external onlyClaimer returns (bool completed) {
         _updateEpisodesState();
         uint currentEpisode = getCurrentEpisode();
-        Episode storage ep = episodes[currentEpisode];
+        
         for(uint i = currentEpisode; i < currentEpisode + MAX_ACTIVE_EPISODES; i++) {
-            ep = episodes[i];
+            Episode storage ep = episodes[i];
             if(episodes[i].assetsStaked == 0) {break;}
             ep.assetsStaked -= amount;
                 

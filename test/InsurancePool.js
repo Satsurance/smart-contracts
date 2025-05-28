@@ -38,12 +38,12 @@ describe("Insurance", async function () {
         .approve(insurancePool, ethers.parseUnits("1000", "ether"));
       await insurancePool
         .connect(poolUnderwriter)
-        .joinPool(ethers.parseUnits("100", "ether"), 8);
+        .joinPool(ethers.parseUnits("100", "ether"), 24);
 
       // Now owner can make a position
       await btcToken.approve(insurancePool, ethers.parseUnits("2000", "ether"));
       await insurancePool.joinPool(
-        ethers.parseUnits("10", "ether"), 8);
+        ethers.parseUnits("10", "ether"), 24);
 
       const init_position = await insurancePool.getPoolPosition(owner, 0);
       const total_assets = await insurancePool.totalAssetsStaked();
@@ -105,7 +105,7 @@ describe("Insurance", async function () {
 
       const position = await insurancePool.getPoolPosition(owner, 0);
       const episodeDuration = await insurancePool.episodeDuration();
-      const additionalTimeNeeded = episodeDuration * BigInt(8);
+      const additionalTimeNeeded = episodeDuration * BigInt(24);
 
       // Get owner's balance before quitting the pool
       const balanceBeforeQuit = await btcToken.balanceOf(owner);
@@ -151,7 +151,7 @@ describe("Insurance", async function () {
         .approve(insurancePool, ethers.parseUnits("100", "ether"));
       await insurancePool
         .connect(poolUnderwriter)
-        .joinPool(ethers.parseUnits("100", "ether"), 8);
+        .joinPool(ethers.parseUnits("100", "ether"), 24);
 
       // Generate rewards through coverage purchase
       const purchaseAmount = ethers.parseUnits("1", "ether");
@@ -213,10 +213,10 @@ describe("Insurance", async function () {
       await btcToken.approve(insurancePool, ethers.parseUnits("1", "ether"));
       await insurancePool
         .connect(poolUnderwriter)
-        .joinPool(ethers.parseUnits("21000000", "ether"), 8);
+        .joinPool(ethers.parseUnits("21000000", "ether"), 24);
       await insurancePool.joinPool(
         ethers.parseUnits("0.01", "ether"),
-        8
+        24
       );
 
       const position_big = await insurancePool.getPoolPosition(
@@ -280,10 +280,10 @@ describe("Insurance", async function () {
       // Create positions
       await insurancePool
         .connect(poolUnderwriter)
-        .joinPool(ethers.parseUnits("21000000", "ether"), 8);
+        .joinPool(ethers.parseUnits("21000000", "ether"), 24);
       await insurancePool.joinPool(
         ethers.parseUnits("0.01", "ether"),
-        8
+        24
       );
 
       // Verify initial positions and shares
@@ -364,7 +364,7 @@ describe("Insurance", async function () {
         .approve(insurancePool, ethers.parseUnits("1000", "ether"));
       await insurancePool
         .connect(poolUnderwriter)
-        .joinPool(ethers.parseUnits("100", "ether"), 8);
+        .joinPool(ethers.parseUnits("100", "ether"), 24);
 
       // Get minimum stake amount from contract
       const minimumStakeAmount = await insurancePool.minimumStakeAmount();
@@ -374,11 +374,11 @@ describe("Insurance", async function () {
 
       // Test amount 1 wei below minimum - should fail
       await expect(
-        insurancePool.joinPool(minimumStakeAmount - 1n, 8)
+        insurancePool.joinPool(minimumStakeAmount - 1n, 24)
       ).to.be.revertedWith("Too small staking amount.");
 
       // Test exactly minimum amount - should succeed
-      await expect(insurancePool.joinPool(minimumStakeAmount, 8)).to
+      await expect(insurancePool.joinPool(minimumStakeAmount, 24)).to
         .not.be.reverted;
 
       // Verify position was created correctly
@@ -405,7 +405,7 @@ describe("Insurance", async function () {
         .approve(insurancePool, ethers.parseUnits("1000", "ether"));
       await insurancePool
         .connect(poolUnderwriter)
-        .joinPool(ethers.parseUnits("100", "ether"), 8);
+        .joinPool(ethers.parseUnits("100", "ether"), 24);
 
       // Create claim
       await claimer.createClaim(
