@@ -4,6 +4,37 @@ const {
     signCoveragePurchase,
 } = require("../utils/signatures");
 
+// Episode duration matches the contract: 91 days / 3 = ~30.33 days
+const EPISODE_DURATION = Math.floor((91 * 24 * 60 * 60) / 3); // 91 days / 3 in seconds
+
+/**
+ * Calculate the current episode locally using the same logic as the contract
+ * @param {number} timestamp - Optional timestamp to calculate episode for. If not provided, uses current time
+ * @returns {Promise<number>} The current episode number
+ */
+async function getCurrentEpisode(timestamp = null) {
+    const currentTime = timestamp || await time.latest();
+    return Math.floor(currentTime / EPISODE_DURATION);
+}
+
+/**
+ * Calculate the start time of a given episode
+ * @param {number} episodeId - The episode ID
+ * @returns {number} The start timestamp of the episode
+ */
+function getEpisodeStartTime(episodeId) {
+    return episodeId * EPISODE_DURATION;
+}
+
+/**
+ * Calculate the finish time of a given episode
+ * @param {number} episodeId - The episode ID
+ * @returns {number} The finish timestamp of the episode
+ */
+function getEpisodeFinishTime(episodeId) {
+    return (episodeId + 1) * EPISODE_DURATION;
+}
+
 async function purchaseCoverage({
     insurancePool,
     poolAsset,
@@ -72,19 +103,10 @@ async function purchaseCoverage({
         );
 }
 
-/**
- * Get episode range for a position based on its start and end episodes
- * @param {Object} position - Position object from getPoolPosition
- * @returns {Array} Array of episode IDs
- */
-function getEpisodeRangeForPosition(position) {
-    const startEpisode = Number(position.startEpisode);
-    const endEpisode = Number(position.endEpisode);
-    const length = endEpisode - startEpisode + 1;
-    return Array.from({ length }, (_, i) => startEpisode + i);
-}
-
 module.exports = {
     purchaseCoverage,
-    getEpisodeRangeForPosition,
+    getCurrentEpisode,
+    getEpisodeStartTime,
+    getEpisodeFinishTime,
+    EPISODE_DURATION,
 }; 
