@@ -2,7 +2,6 @@ const {
   time,
   loadFixture,
 } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
-const { signUnstakeRequest } = require("../utils/signatures");
 const { purchaseCoverage, getCurrentEpisode } = require("./helpers.js");
 
 const { expect } = require("chai");
@@ -12,11 +11,21 @@ const InsuranceSetup = require("../ignition/modules/Insurance.js");
 const allowedUnderstaking = ethers.parseUnits("0.000000001", "ether"); // 0.01 cent if bitcoin costs 100k
 
 describe("Insurance", async function () {
-  // We define a fixture to reuse the same setup in every test.
-  // We use loadFixture to run this setup once, snapshot that state,
-  // and reset Hardhat Network to that snapshot in every test.
   async function basicFixture() {
-    return ignition.deploy(InsuranceSetup);
+    const deployment = await ignition.deploy(InsuranceSetup);
+
+    // Get the poolUnderwriter account (account 1 from the deployment)
+    const [owner, poolUnderwriter] = await ethers.getSigners();
+
+    // Create a basic product using the poolUnderwriter account
+    await deployment.insurancePool.connect(poolUnderwriter).createProduct(
+      "Basic Coverage", // name
+      1000, // annualPremium (10% annual premium)
+      365 * 24 * 60 * 60, // maxCoverageDuration (1 year in seconds)
+      5000 // maxPoolAllocation (50% of pool)
+    );
+
+    return deployment;
   }
 
   describe("InsurancePool", async function () {
@@ -66,11 +75,8 @@ describe("Insurance", async function () {
         insurancePool,
         poolAsset: btcToken,
         buyer: otherAccount,
-        underwriterSigner: poolUnderwriterSigner,
         coveredAccount: otherAccount.address,
-        purchaseAmount: minimumRewardAmount,
-        coverageAmount: minimumRewardAmount * 100n,
-        description: "",
+        coverageAmount: minimumRewardAmount * 10n,
       });
 
       // It is required some time to have all the rewards distributed.
@@ -170,11 +176,8 @@ describe("Insurance", async function () {
         insurancePool,
         poolAsset: btcToken,
         buyer: poolUnderwriter,
-        underwriterSigner: poolUnderwriterSigner,
         coveredAccount: poolUnderwriter.address,
-        purchaseAmount: purchaseAmount,
-        coverageAmount: purchaseAmount * 100n,
-        description: "Test coverage",
+        coverageAmount: purchaseAmount * 10n,
       });
 
       // Distribute reward
@@ -246,11 +249,8 @@ describe("Insurance", async function () {
         insurancePool,
         poolAsset: btcToken,
         buyer: owner,
-        underwriterSigner: poolUnderwriterSigner,
         coveredAccount: poolUnderwriter.address,
-        purchaseAmount: ethers.parseUnits("1", "ether"),
-        coverageAmount: ethers.parseUnits("1", "ether") * 100n,
-        description: "Test coverage",
+        coverageAmount: ethers.parseUnits("1", "ether") * 10n,
       });
 
       await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 600);
@@ -319,7 +319,7 @@ describe("Insurance", async function () {
         .approve(insurancePool, ethers.parseUnits("1", "ether"));
 
       // Make 10 coverage purchases over time to distribute rewards
-      const purchaseAmount = ethers.parseUnits("0.1", "ether"); // 0.1 ETH each, total 1 ETH
+
       let totalSlashed = 0n;
 
       for (let i = 0; i < 10; i++) {
@@ -327,11 +327,8 @@ describe("Insurance", async function () {
           insurancePool,
           poolAsset: btcToken,
           buyer: buyer,
-          underwriterSigner: poolUnderwriterSigner,
           coveredAccount: buyer.address,
-          purchaseAmount: purchaseAmount,
-          coverageAmount: purchaseAmount * 100n,
-          description: `Coverage purchase ${i + 1}`,
+          coverageAmount: ethers.parseUnits("0.1", "ether") * 10n,
         });
 
         // Increase time between purchases

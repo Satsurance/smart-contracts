@@ -39,67 +39,41 @@ async function purchaseCoverage({
     insurancePool,
     poolAsset,
     buyer,
-    underwriterSigner,
     coveredAccount,
-    purchaseAmount,
     coverageAmount,
-    description,
 }) {
-    // Get chainId for signature
-    const chainId = (await ethers.provider.getNetwork()).chainId;
+    // Default to product ID 0 (the basic product created in tests)
+    const productId = 0;
 
-    // Generate unique coverId using timestamp and random number
-    const coverId = ethers.toBigInt(
-        ethers.solidityPackedKeccak256(
-            ["uint256"],
-            [Math.floor(Math.random() * 1000000)]
-        )
-    );
-
-    // Setup coverage dates
-    const startDate = await time.latest();
-    const endDate = startDate + 1000;
-
-    // Set deadline 1 hour in the future
-    const deadline = startDate + 3600;
-
-    // Prepare signature parameters
-    const params = {
-        coverId,
-        account: coveredAccount,
-        coverAmount: coverageAmount,
-        purchaseAmount,
-        startDate,
-        endDate,
-        description,
-        deadline,
-        chainId,
-    };
-
+    // Calculate coverage duration from purchaseAmount and coverageAmount
+    // This is a simplified calculation - in practice you might want to pass duration directly
+    const coverageDuration = 365 * 24 * 60 * 60; // 1 year in seconds (default)
 
     // Approve token transfer if needed
     const buyerAddress = await buyer.getAddress();
+
+    // Get the product to calculate the actual premium amount
+    const product = await insurancePool.products(productId);
+    const premiumAmount = (BigInt(coverageDuration) * BigInt(product.annualPercent) * BigInt(coverageAmount)) / BigInt(365 * 24 * 60 * 60 * 10000);
+
     const allowance = await poolAsset.allowance(
         buyerAddress,
         insurancePool.target
     );
-    if (allowance < purchaseAmount) {
+    if (allowance < premiumAmount) {
         await poolAsset
             .connect(buyer)
-            .approve(insurancePool.target, purchaseAmount);
+            .approve(insurancePool.target, premiumAmount);
     }
 
-    // Execute purchase
+    // Execute purchase with the new method signature
     await insurancePool
         .connect(buyer)
         .purchaseCover(
-            coverId,
+            productId,
             coveredAccount,
-            coverageAmount,
-            purchaseAmount,
-            startDate,
-            endDate,
-            description,
+            coverageDuration,
+            coverageAmount
         );
 }
 
