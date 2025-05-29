@@ -22,7 +22,7 @@ describe("Insurance", async function () {
       "Basic Coverage", // name
       1000, // annualPremium (10% annual premium)
       365 * 24 * 60 * 60, // maxCoverageDuration (1 year in seconds)
-      5000 // maxPoolAllocation (50% of pool)
+      10000 // maxPoolAllocation (100% of pool)
     );
 
     return deployment;
@@ -160,12 +160,11 @@ describe("Insurance", async function () {
         .approve(insurancePool, ethers.parseUnits("100", "ether"));
 
       // Calculate valid episode for staking
-      const currentEpisode2 = await getCurrentEpisode();
-      const episodeToStake2 = currentEpisode2 + 23; // 23 episodes from current, satisfies constraint
+      const episodeToStake = await getCurrentEpisode() + 23;
 
       await insurancePool
         .connect(poolUnderwriter)
-        .joinPool(ethers.parseUnits("100", "ether"), episodeToStake2);
+        .joinPool(ethers.parseUnits("100", "ether"), episodeToStake);
 
       // Generate rewards through coverage purchase
       const purchaseAmount = ethers.parseUnits("1", "ether");
