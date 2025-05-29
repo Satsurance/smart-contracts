@@ -57,21 +57,21 @@ struct Episode {
 
 struct Product {
     string name;
-    uint productId;
-    uint annualPercent;
-    uint maxCoverageDuration;
-    uint maxPoolAllocationPercent;
+    uint64 productId;
+    uint64 annualPercent;
+    uint64 maxCoverageDuration;
+    uint64 maxPoolAllocationPercent;
     uint allocation;
     uint lastAllocationUpdate;
     bool active;
 }
 
 struct Cover {
-    uint productId;
     address coveredAccount;
     uint coveredAmount;
-    uint startDate;
-    uint endDate;
+    uint64 productId;
+    uint64 startDate;
+    uint64 endDate;
 }
 
 
@@ -87,7 +87,7 @@ contract InsurancePool is OwnableUpgradeable {
 
 
     // Products tracking
-    uint public productCounter;
+    uint64 public productCounter;
     mapping(uint => Product) public products;
     mapping(uint => mapping(uint => uint)) public episodeAllocationCut; // productId => episode => allocationCut
 
@@ -117,8 +117,8 @@ contract InsurancePool is OwnableUpgradeable {
     uint public accRewardRatePerShare;
 
     // Coverage tracking
-    uint public coverCounter;
-    mapping(uint256 => Cover) public covers;
+    uint64 public coverCounter;
+    mapping(uint => Cover) public covers;
 
     /**
      * @dev Storage gap to allow for future upgrades
@@ -281,7 +281,6 @@ contract InsurancePool is OwnableUpgradeable {
 
 
         uint newPositionId = positionCounter[msg.sender]++;
-        // uint positionEndEpisode = currentEpisode + _episodeToStake - 1;
         uint newShares = totalPoolShares == 0 ? _amount : (_amount * totalPoolShares) / totalAssetsStaked;
         Episode storage lastEpisode = episodes[_episodeToStake];
         lastEpisode.assetsStaked += _amount;
@@ -385,7 +384,6 @@ contract InsurancePool is OwnableUpgradeable {
     }
 
     function _rewardPool(uint amount) internal {
-        _updateEpisodesState();
         uint currentEpisode = getCurrentEpisode();
         uint currentEpisodeFinishTime = getEpisodeFinishTime(currentEpisode);
 
@@ -410,11 +408,11 @@ contract InsurancePool is OwnableUpgradeable {
                 return true;
             }
         }
-        return false;
+        return true;
     }
 
     function purchaseCover(
-        uint productId,
+        uint64 productId,
         address coveredAccount,
         uint coverageDuration,
         uint coverageAmount
@@ -433,6 +431,7 @@ contract InsurancePool is OwnableUpgradeable {
         uint requiredProductAllocation = ((coverageAmount + product.allocation) * 10000)/ product.maxPoolAllocationPercent;
         require(_verifyProductAllocation(lastCoveredEpisode, requiredProductAllocation), "Not enough assets to cover.");
         episodeAllocationCut[productId][lastCoveredEpisode] += coverageAmount;
+        product.allocation += coverageAmount;
 
         // Calculate premium
         uint premiumAmount = (coverageDuration * product.annualPercent * coverageAmount) / (365 days * 10000);
@@ -440,13 +439,13 @@ contract InsurancePool is OwnableUpgradeable {
         _rewardPool(premiumAmount);
 
 
-        uint coverId = coverCounter++;
+        uint64 coverId = coverCounter++;
         covers[coverId] = Cover({
             productId: productId,
             coveredAccount: coveredAccount,
             coveredAmount: coverageAmount,
-            startDate: block.timestamp,
-            endDate: block.timestamp + coverageDuration
+            startDate: uint64(block.timestamp),
+            endDate: uint64(block.timestamp + coverageDuration)
         });
 
         emit NewCover(
@@ -462,16 +461,16 @@ contract InsurancePool is OwnableUpgradeable {
 
     function createProduct(
         string calldata name,
-        uint annualPercent,
-        uint maxCoverageDuration,
-        uint maxPoolAllocationPercent
+        uint64 annualPercent,
+        uint64 maxCoverageDuration,
+        uint64 maxPoolAllocationPercent
     ) external returns (uint) {
         require(msg.sender == poolUnderwriter, "Access check fail.");
         require(maxCoverageDuration < (MAX_ACTIVE_EPISODES -1) * episodeDuration, "Max coverage duration is too long.");
         require(maxPoolAllocationPercent <= 10000, "Max pool allocation is too high.");
         require(annualPercent > 0, "Annual premium must be greater than 0.");
 
-        uint productId = productCounter++;
+        uint64 productId = productCounter++;
         products[productId] = Product({
             name: name,
             productId: productId,
@@ -487,9 +486,9 @@ contract InsurancePool is OwnableUpgradeable {
 
     function setProduct(
         uint productId,
-        uint annualPercent,
-        uint maxCoverageDuration,
-        uint maxPoolAllocationPercent,
+        uint64 annualPercent,
+        uint64 maxCoverageDuration,
+        uint64 maxPoolAllocationPercent,
         bool active
     ) external {
         require(msg.sender == poolUnderwriter, "Access check fail.");
