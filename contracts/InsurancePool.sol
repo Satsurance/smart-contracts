@@ -45,6 +45,7 @@ event NewCover(
 struct PoolStake {
     uint episode;
     uint shares;
+    uint rewardPerShare;
     bool active;
 }
 
@@ -91,12 +92,8 @@ contract InsurancePool is OwnableUpgradeable {
     mapping(uint => mapping(uint => uint)) public episodeAllocationCut; // productId => episode => allocationCut
 
     // User position track mappings
-    mapping(address => mapping(uint => uint)) public positionRewardPerShare; // position in episode
     mapping(address => mapping(uint => PoolStake)) public positions;
     mapping(address => uint) public positionCounter;
-
-    // User position shares per episode: episodeId => user => positionId => shares
-    mapping(uint => mapping(address => mapping(uint => uint))) public userPositionsShares;
 
     // Underwriters
     uint public minUnderwriterPercentage;
@@ -218,10 +215,10 @@ contract InsurancePool is OwnableUpgradeable {
 
     function earnedPosition(address _account, uint _positionId) public returns (uint) {
         _updateEpisodesState();
-        PoolStake memory position = positions[_account][_positionId];
+        PoolStake storage position = positions[_account][_positionId];
         uint reward = 0;
-        reward = (position.shares * (accRewardRatePerShare - positionRewardPerShare[_account][_positionId])) / 1e18;
-        positionRewardPerShare[_account][_positionId] = accRewardRatePerShare;
+        reward = (position.shares * (accRewardRatePerShare - position.rewardPerShare)) / 1e18;
+        position.rewardPerShare = accRewardRatePerShare;
         return reward;
     }
 
@@ -251,21 +248,17 @@ contract InsurancePool is OwnableUpgradeable {
     }
 
     // Underwriter's part of the stake can't be less then 10%
-    function maxAmountUserToStake() public view returns(uint) {
+    function maxSharesUserToStake() public view returns(uint) {
         if(totalPoolShares == 0) return 0;
-        return ((((underwriterTotalShares * 10000)/minUnderwriterPercentage) - totalPoolShares) * totalAssetsStaked) / totalPoolShares;
+        return (underwriterTotalShares * 10000)/minUnderwriterPercentage - totalPoolShares;
     }
 
     // Underwriter's part of the stake can't be less then 10%
-    function maxUnderwriterToUnstake() public view returns(uint) {
-        if(underwriterTotalShares == totalPoolShares) {
-            return totalAssetsStaked;
-        }
-        //TODO make normal fix
-        if (totalPoolShares ==0) {
+    function maxUnderwriterSharesToUnstake() public view returns(uint) {
+        if (totalPoolShares == 0) {
             return underwriterTotalShares;
         }
-        return ((underwriterTotalShares - (totalPoolShares * minUnderwriterPercentage) / 10000) * totalAssetsStaked)/totalPoolShares;
+        return underwriterTotalShares - (totalPoolShares * minUnderwriterPercentage)/10000;
     }
 
     function joinPool(
@@ -273,32 +266,28 @@ contract InsurancePool is OwnableUpgradeable {
         uint _episodeToStake
     ) external returns (bool completed) {
         require(_amount >= minimumStakeAmount, "Too small staking amount.");
-        require(msg.sender == poolUnderwriter || _amount <= maxAmountUserToStake(), "Underwriter position can't be less than allowed.");
         require(msg.sender == poolUnderwriter || isNewDepositsAccepted, "New deposits are not allowed.");
 
         uint currentEpisode = getCurrentEpisode();
-        require(_episodeToStake <= currentEpisode + MAX_ACTIVE_EPISODES - 1, "Too long staking time.");
-        require(_episodeToStake > 0, "Too short staking time.");
-        require((_episodeToStake - currentEpisode) % 3 == 2, "Staking time must be a multiple of 3.");
+        require(_episodeToStake < currentEpisode + MAX_ACTIVE_EPISODES, "Too long staking time.");
+        require(_episodeToStake >= currentEpisode, "Outdated episode to stake.");
+        require((_episodeToStake - currentEpisode) % 3 == 2, "Staking episode must be a multiple of 3.");
 
-        poolAsset.transferFrom(msg.sender, address(this), _amount);
         _updateEpisodesState();
-
 
         uint newPositionId = positionCounter[msg.sender]++;
         uint newShares = totalPoolShares == 0 ? _amount : (_amount * totalPoolShares) / totalAssetsStaked;
-        Episode storage lastEpisode = episodes[_episodeToStake];
-        lastEpisode.assetsStaked += _amount;
-        lastEpisode.episodeShares += newShares;
-        // Store only once for the withdraw episode.
-        userPositionsShares[_episodeToStake][msg.sender][newPositionId] = newShares;
+        require(msg.sender == poolUnderwriter || newShares <= maxSharesUserToStake(), "Underwriter position can't be less than allowed.");
 
-        // Set reward rate for the current episode.
-        positionRewardPerShare[msg.sender][newPositionId] = accRewardRatePerShare;
+        Episode storage targetEpisode = episodes[_episodeToStake];
+        targetEpisode.assetsStaked += _amount;
+        targetEpisode.episodeShares += newShares;
 
+        // Save position
         positions[msg.sender][newPositionId] = PoolStake({
             episode: _episodeToStake,
             shares: newShares,
+            rewardPerShare: accRewardRatePerShare,
             active: true
         });
 
@@ -307,6 +296,8 @@ contract InsurancePool is OwnableUpgradeable {
         }
         totalPoolShares += newShares;
         totalAssetsStaked += _amount;
+
+        poolAsset.transferFrom(msg.sender, address(this), _amount);
 
         emit PoolJoined(
             currentEpisode,
@@ -322,6 +313,53 @@ contract InsurancePool is OwnableUpgradeable {
         return true;
     }
 
+    function extendPoolPosition(uint _positionId, uint _episodeToStake, uint _sharesToWithdraw) external returns (bool) {
+        require(msg.sender == poolUnderwriter || isNewDepositsAccepted, "Extended deposits are not allowed.");
+
+        uint currentEpisode = getCurrentEpisode();
+        require(_episodeToStake < currentEpisode + MAX_ACTIVE_EPISODES, "Too long staking time.");
+        require(_episodeToStake >= currentEpisode, "Outdated episode to stake.");
+        require((_episodeToStake - currentEpisode) % 3 == 2, "Staking episode must be a multiple of 3.");
+
+        _updateEpisodesState();
+
+        PoolStake storage position = positions[msg.sender][_positionId];
+        require(msg.sender == poolUnderwriter || position.shares - _sharesToWithdraw <= maxSharesUserToStake(), "Underwriter position can't be less than allowed.");
+        require(position.episode < currentEpisode || _sharesToWithdraw == 0, "It is possible to withdraw on extend only for the expired positions.");
+        uint withdrawAmount = 0;
+        if(position.episode < currentEpisode) {
+            // Calculate reward and also update the position reward per share
+            withdrawAmount += earnedPosition(msg.sender, _positionId);
+        }
+
+        uint movedShares = position.shares - _sharesToWithdraw;
+        uint movedAssets = (movedShares * totalAssetsStaked) / totalPoolShares;
+
+        // Clean previus episode
+        Episode storage previuslyDepositedEpisode = episodes[position.episode];
+        withdrawAmount += (_sharesToWithdraw * previuslyDepositedEpisode.assetsStaked) / previuslyDepositedEpisode.episodeShares;
+        previuslyDepositedEpisode.assetsStaked -= movedAssets;
+        previuslyDepositedEpisode.episodeShares -= position.shares;
+
+        // Update new target episode
+        Episode storage targetEpisode = episodes[_episodeToStake];
+        targetEpisode.assetsStaked += movedAssets;
+        targetEpisode.episodeShares += movedShares;
+        position.shares -= _sharesToWithdraw;
+
+        if(msg.sender == poolUnderwriter) {
+            underwriterTotalShares -= _sharesToWithdraw;
+        }
+        totalPoolShares += movedShares;
+        totalAssetsStaked += movedAssets;
+
+        if(withdrawAmount > 0) {
+            poolAsset.transfer(msg.sender, withdrawAmount);
+        }
+
+        return true;
+    }
+
     function quitPoolPosition(uint positionId) external returns (bool completed) {
         address toRemove = msg.sender;
         uint currentEpisode = getCurrentEpisode();
@@ -330,17 +368,22 @@ contract InsurancePool is OwnableUpgradeable {
         require(position.episode < currentEpisode, "Funds are timelocked.");
         _updateEpisodesState();
 
+        require(toRemove != poolUnderwriter ||
+            position.shares <= maxUnderwriterSharesToUnstake(),
+            "Underwriter position can't be less than allowed."
+         );
+
 
         uint rewards = earnedPosition(toRemove, positionId);
         // First calculate withdraw based on shares in the episode
         Episode storage ep = episodes[position.episode];
-        uint withdrawAmount = (userPositionsShares[position.episode][toRemove][positionId]*ep.assetsStaked)/ ep.episodeShares;
-        require(toRemove != poolUnderwriter || withdrawAmount <= maxUnderwriterToUnstake(), "Underwriter position can't be less than allowed.");
+
+        uint withdrawAmount = (position.shares * ep.assetsStaked)/ ep.episodeShares;
+
 
         // New removals - only subtract the original stake amount, not the rewards
         ep.assetsStaked -= withdrawAmount;
-        ep.episodeShares -= userPositionsShares[position.episode][toRemove][positionId];
-        userPositionsShares[position.episode][toRemove][positionId] = 0;
+        ep.episodeShares -= position.shares;
 
         if(toRemove == poolUnderwriter) {
             underwriterTotalShares -= position.shares;
