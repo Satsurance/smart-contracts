@@ -41,7 +41,6 @@ contract PoolFactory is IPoolFactory {
     function create(
         bytes calldata initData
     ) external returns (uint poolId, address poolAddress) {
-        require(msg.sender == operator, "PoolFactory: Not operator");
         require(beacon != address(0), "PoolFactory: Beacon not set");
 
         poolId = ++_poolCount;

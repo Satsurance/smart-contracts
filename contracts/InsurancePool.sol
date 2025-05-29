@@ -49,7 +49,6 @@ struct PoolStake {
 }
 
 struct Episode {
-    uint amountCovered;
     uint episodeShares;
     uint assetsStaked;
     uint rewardDecrease;
@@ -200,6 +199,12 @@ contract InsurancePool is OwnableUpgradeable {
         uint lastUpdatedEpisode = product.lastAllocationUpdate / episodeDuration;
         uint currentEpisode = getCurrentEpisode();
         if(lastUpdatedEpisode == currentEpisode) {
+            return;
+        }
+        // If the last update is more than MAX_ACTIVE_EPISODES, all the coverages are expired.
+        if (currentEpisode - MAX_ACTIVE_EPISODES > lastUpdatedEpisode) {
+            product.allocation = 0;
+            product.lastAllocationUpdate = block.timestamp;
             return;
         }
         uint allocationCut = 0;
@@ -398,10 +403,10 @@ contract InsurancePool is OwnableUpgradeable {
         ep.rewardDecrease += rewardRateIncrease;
     }
 
-    function _verifyProductAllocation(uint lastCoveredEpisode, uint requestedAllocation) internal view returns(bool) {
+    function _verifyProductAllocation(uint startEpisode, uint requestedAllocation) internal view returns(bool) {
         uint availableAllocation = 0;
         uint currentEpisode = getCurrentEpisode();
-        for(uint i = lastCoveredEpisode; i < currentEpisode + MAX_ACTIVE_EPISODES; i++) {
+        for(uint i = startEpisode; i < currentEpisode + MAX_ACTIVE_EPISODES; i++) {
             Episode storage ep = episodes[i];
             availableAllocation += ep.assetsStaked;
             if(availableAllocation >= requestedAllocation) {
