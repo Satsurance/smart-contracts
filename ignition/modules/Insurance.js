@@ -18,6 +18,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     "wbtcInitialSupply",
     WBTC_INITIAL_SUPPLY
   );
+  const bonusPerEpisodeStaked = m.getParameter("bonusPerEpisodeStaked", 0);
 
   // Mock Btc token
   let btcToken = m.contract("BTCToken", [wbtcInitialSupply]);
@@ -53,10 +54,12 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   ]);
 
   // Deploy PoolFactory
-  let poolFactory = m.contract("PoolFactory", [m.getAccount(0)]); // deployer as initial operator
-
-  // Set beacon in factory
-  m.call(poolFactory, "setBeacon", [insurancePoolBeacon]);
+  let poolFactory = m.contract("PoolFactory", [
+    m.getAccount(0), // owner (deployer)
+    m.getAccount(0), // operator (deployer for now)
+    m.getAccount(2), // capitalPool (unused account for now)
+    insurancePoolBeacon // beacon address
+  ]);
 
   // Deploy upgradable Claimer
   let claimerLogic = m.contract("Claimer", [], {
@@ -80,6 +83,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     btcToken,
     claimerProxy, // claimer address
     1000, // 10%
+    bonusPerEpisodeStaked, // Bonus per episode staked
     true,
   ]);
 

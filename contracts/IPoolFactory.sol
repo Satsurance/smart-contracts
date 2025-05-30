@@ -11,16 +11,13 @@ interface IPoolFactory {
     event BeaconChanged(address indexed oldBeacon, address indexed newBeacon);
 
     // View functions
-    function operator() external view returns (address);
-
     function beacon() external view returns (address);
+
+    function capitalPool() external view returns (address);
 
     function poolCount() external view returns (uint);
 
     function pools(uint poolId) external view returns (address);
-
-    // State-changing functions
-    function changeOperator(address newOperator) external;
 
     function setBeacon(address newBeacon) external;
 

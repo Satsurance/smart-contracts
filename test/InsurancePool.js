@@ -351,7 +351,6 @@ describe("Insurance", async function () {
       await time.increaseTo((await time.latest()) + 60 * 60 * 24 * 700);
 
       // Check earned rewards
-      const positionBigDifferentTime = await insurancePool.getPoolPosition(poolUnderwriter, 0);
       const earnedAmountBig = await insurancePool.earnedPosition.staticCall(poolUnderwriter, 0);
       const earnedAmountSmall = await insurancePool.earnedPosition.staticCall(owner, 0);
 
