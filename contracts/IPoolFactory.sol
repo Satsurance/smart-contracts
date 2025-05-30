@@ -15,11 +15,17 @@ interface IPoolFactory {
 
     function capitalPool() external view returns (address);
 
+    function protocolFee() external view returns (uint256);
+
     function poolCount() external view returns (uint);
 
     function pools(uint poolId) external view returns (address);
 
     function setBeacon(address newBeacon) external;
+
+    function setCapitalPool(address newCapitalPool) external;
+
+    function setProtocolFee(uint256 newProtocolFee) external;
 
     function create(
         bytes calldata initData

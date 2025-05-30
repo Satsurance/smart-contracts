@@ -6,7 +6,6 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {IPoolFactory} from "./IPoolFactory.sol";
 
 event PoolJoined(
-    uint startEpisode,
     uint endEpisode,
     address indexed user,
     uint positionId,
@@ -29,8 +28,7 @@ event ClaimExecuted(
     address indexed claimer,
     address indexed receiver,
     uint claimAmount,
-    uint totalAssetsAfter,
-    uint timestamp
+    uint totalAssetsAfter
 );
 
 event NewCover(
@@ -40,6 +38,22 @@ event NewCover(
     uint premiumAmount,
     uint startDate,
     uint endDate
+);
+
+event GlobalSettingsUpdated(
+    address indexed capitalPool,
+    uint protocolFee
+);
+
+event PoolPositionExtended(
+    address indexed user,
+    uint positionId,
+    uint fromEpisode,
+    uint toEpisode,
+    uint sharesWithdrawn,
+    uint withdrawnAmount,
+    uint totalPoolSharesAfter,
+    uint totalAssetsAfter
 );
 
 struct PoolStake {
@@ -93,6 +107,7 @@ contract InsurancePool is OwnableUpgradeable {
 
     uint public protocolFee;
     uint public constant MAX_PROTOCOL_FEE = 1500;
+    uint public constant BASIS_POINTS = 10000; // 100% in basis points
 
 
     // Products tracking
@@ -145,12 +160,15 @@ contract InsurancePool is OwnableUpgradeable {
         address _claimer,
         uint _minUnderwriterPercentage, // 1000 is 10%
         uint _bonusPerEpisodeStaked,
-        bool _isNewDepositsAccepted
+        bool _isNewDepositsAccepted,
+        uint _underwriterFee
     ) public initializer {
+        require(_underwriterFee <= MAX_UNDERWRITER_FEE, "Underwriter fee too high.");
+
         __Ownable_init(_governor);
         factory = IPoolFactory(msg.sender);
         poolId = factory.poolCount();
-        capitalPool = factory.capitalPool();
+        updateGlobalSettings();
 
         poolUnderwriter =_poolUnderwritter;
         claimer = _claimer;
@@ -162,9 +180,10 @@ contract InsurancePool is OwnableUpgradeable {
         episodeDuration = 91 days/3;
         updatedRewardsAt = block.timestamp;
         minUnderwriterPercentage = _minUnderwriterPercentage;
-        // TODO choose correct values
-        minimumStakeAmount = 100000000;
+        // 1$ in BTC
+        minimumStakeAmount = 9500000000000;
         bonusPerEpisodeStaked = _bonusPerEpisodeStaked;
+        underwriterFee = _underwriterFee;
 
         
     }
@@ -174,8 +193,15 @@ contract InsurancePool is OwnableUpgradeable {
         claimer = newClaimer;
     }
 
-    function updateCapitalPool() external {
+    function updateGlobalSettings() public {
         capitalPool = factory.capitalPool();
+        protocolFee = factory.protocolFee();
+        require(protocolFee <= MAX_PROTOCOL_FEE, "Protocol fee too high.");
+        
+        emit GlobalSettingsUpdated(
+            capitalPool,
+            protocolFee
+        );
     }
 
     function rewardRatePerShare(uint _updatedRewardsAt, uint finishTime) public view returns (uint) {
@@ -265,14 +291,20 @@ contract InsurancePool is OwnableUpgradeable {
         isNewDepositsAccepted = _isNewDepositsAccepted;
     }
 
+    function setUnderwriterFee(uint _underwriterFee) external {
+        require(msg.sender == poolUnderwriter, "Access check fail.");
+        require(_underwriterFee <= MAX_UNDERWRITER_FEE, "Underwriter fee too high.");
+        underwriterFee = _underwriterFee;
+    }
+
     // Underwriter's part of the stake can't be less then 10%
     function maxSharesUserToStake() public view returns(uint) {
-        return (underwriterTotalShares * 10000)/minUnderwriterPercentage - totalPoolShares;
+        return (underwriterTotalShares * BASIS_POINTS)/minUnderwriterPercentage - totalPoolShares;
     }
 
     // Underwriter's part of the stake can't be less then 10%
     function maxUnderwriterSharesToUnstake() public view returns(uint) {
-        return underwriterTotalShares - (totalPoolShares * minUnderwriterPercentage)/10000;
+        return underwriterTotalShares - (totalPoolShares * minUnderwriterPercentage)/BASIS_POINTS;
     }
 
     function joinPool(
@@ -291,7 +323,7 @@ contract InsurancePool is OwnableUpgradeable {
 
         uint newPositionId = positionCounter[msg.sender]++;
         uint newShares = totalPoolShares == 0 ? _amount : (_amount * totalPoolShares) / totalAssetsStaked;
-        uint newRewardShares = newShares + newShares * (_episodeToStake - currentEpisode - 2) * bonusPerEpisodeStaked / 10000;
+        uint newRewardShares = newShares + newShares * (_episodeToStake - currentEpisode - 2) * bonusPerEpisodeStaked / BASIS_POINTS;
         require(msg.sender == poolUnderwriter || newShares <= maxSharesUserToStake(), "Underwriter position can't be less than allowed.");
 
         Episode storage targetEpisode = episodes[_episodeToStake];
@@ -318,7 +350,6 @@ contract InsurancePool is OwnableUpgradeable {
         poolAsset.transferFrom(msg.sender, address(this), _amount);
 
         emit PoolJoined(
-            currentEpisode,
             _episodeToStake,
             msg.sender,
             newPositionId,
@@ -344,6 +375,8 @@ contract InsurancePool is OwnableUpgradeable {
         PoolStake storage position = positions[msg.sender][_positionId];
         require(msg.sender == poolUnderwriter || position.shares - _sharesToWithdraw <= maxSharesUserToStake(), "Underwriter position can't be less than allowed.");
         require(position.episode < currentEpisode || _sharesToWithdraw == 0, "It is possible to withdraw on extend only for the expired positions.");
+        
+        uint fromEpisode = position.episode; // Capture original episode for event
         uint withdrawAmount = 0;
         if(position.episode < currentEpisode) {
             // Calculate reward and also update the position reward per share
@@ -383,6 +416,17 @@ contract InsurancePool is OwnableUpgradeable {
         if(withdrawAmount > 0) {
             poolAsset.transfer(msg.sender, withdrawAmount);
         }
+
+        emit PoolPositionExtended(
+            msg.sender,
+            _positionId,
+            fromEpisode,
+            _episodeToStake,
+            _sharesToWithdraw,
+            withdrawAmount,
+            totalPoolShares,
+            totalAssetsStaked
+        );
 
         return true;
     }
@@ -452,8 +496,7 @@ contract InsurancePool is OwnableUpgradeable {
             msg.sender,
             receiver,
             amount,
-            totalAssetsStaked,
-            block.timestamp
+            totalAssetsStaked
         );
         return true;
     }
@@ -501,15 +544,15 @@ contract InsurancePool is OwnableUpgradeable {
 
         // Check enough allocation
         uint lastCoveredEpisode = (block.timestamp + coverageDuration) / episodeDuration;
-        uint requiredProductAllocation = ((coverageAmount + product.allocation) * 10000)/ product.maxPoolAllocationPercent;
+        uint requiredProductAllocation = ((coverageAmount + product.allocation) * BASIS_POINTS)/ product.maxPoolAllocationPercent;
         require(_verifyProductAllocation(lastCoveredEpisode, requiredProductAllocation), "Not enough assets to cover.");
         episodeAllocationCut[productId][lastCoveredEpisode] += coverageAmount;
         product.allocation += coverageAmount;
 
         // Calculate premium
-        uint premiumAmount = (coverageDuration * product.annualPercent * coverageAmount) / (365 days * 10000);
-        uint protocolFeeAmount = premiumAmount * 1500 / 10000;
-        uint underwriterFeeAmount = premiumAmount * 1000 / 10000;
+        uint premiumAmount = (coverageDuration * product.annualPercent * coverageAmount) / (365 days * BASIS_POINTS);
+        uint protocolFeeAmount = premiumAmount * protocolFee / BASIS_POINTS;
+        uint underwriterFeeAmount = premiumAmount * underwriterFee / BASIS_POINTS;
         poolAsset.transferFrom(msg.sender, address(this), premiumAmount);
         poolAsset.transfer(capitalPool, protocolFeeAmount);
         poolAsset.transfer(poolUnderwriter, underwriterFeeAmount);
@@ -545,7 +588,7 @@ contract InsurancePool is OwnableUpgradeable {
     ) external returns (uint) {
         require(msg.sender == poolUnderwriter, "Access check fail.");
         require(maxCoverageDuration < (MAX_ACTIVE_EPISODES -1) * episodeDuration, "Max coverage duration is too long.");
-        require(maxPoolAllocationPercent <= 10000, "Max pool allocation is too high.");
+        require(maxPoolAllocationPercent <= BASIS_POINTS, "Max pool allocation is too high.");
         require(annualPercent > 0, "Annual premium must be greater than 0.");
 
         uint64 productId = productCounter++;
@@ -571,7 +614,7 @@ contract InsurancePool is OwnableUpgradeable {
     ) external {
         require(msg.sender == poolUnderwriter, "Access check fail.");
         require(maxCoverageDuration < (MAX_ACTIVE_EPISODES -1) * episodeDuration, "Max coverage duration is too long.");
-        require(maxPoolAllocationPercent <= 10000, "Max pool allocation is too high.");
+        require(maxPoolAllocationPercent <= BASIS_POINTS, "Max pool allocation is too high.");
         require(annualPercent > 0, "Annual premium must be greater than 0.");
         require(productId < productCounter, "Product ID is too high.");
 

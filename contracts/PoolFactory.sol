@@ -11,33 +11,43 @@ contract PoolFactory is IPoolFactory, AccessControlEnumerable {
 
     address public beacon;
     address public capitalPool;
+    uint256 public protocolFee;
     uint96 internal _poolCount;
     mapping(uint => address) public pools;
 
-    constructor(address _owner, address _operator, address _capitalPool, address _beacon) {
+    constructor(
+        address _owner,
+        address _operator,
+        address _capitalPool,
+        address _beacon,
+        uint256 _protocolFee
+    ) {
         _grantRole(DEFAULT_ADMIN_ROLE, _owner);
         _grantRole(OWNER_ROLE, _owner);
         _grantRole(OPERATOR_ROLE, _operator);
 
-        _setRoleAdmin(OWNER_ROLE, DEFAULT_ADMIN_ROLE);      
-        _setRoleAdmin(OPERATOR_ROLE, DEFAULT_ADMIN_ROLE);
+        _setRoleAdmin(OWNER_ROLE, DEFAULT_ADMIN_ROLE);
+        _setRoleAdmin(OPERATOR_ROLE, OPERATOR_ROLE);
 
         setBeacon(_beacon);
         setCapitalPool(_capitalPool);
+        setProtocolFee(_protocolFee);
     }
 
-    // Interface compatibility functions
-    function operator() external view returns (address) {
-        // Return the first operator for backward compatibility
-        if (getRoleMemberCount(OPERATOR_ROLE) > 0) {
-            return getRoleMember(OPERATOR_ROLE, 0);
-        }
-        return address(0);
-    }
-
-    function setCapitalPool(address newCapitalPool) public onlyRole(OPERATOR_ROLE) {
-        require(newCapitalPool != address(0), "PoolFactory: Invalid capital pool");
+    function setCapitalPool(
+        address newCapitalPool
+    ) public onlyRole(OPERATOR_ROLE) {
+        require(
+            newCapitalPool != address(0),
+            "PoolFactory: Invalid capital pool"
+        );
         capitalPool = newCapitalPool;
+    }
+
+    function setProtocolFee(
+        uint256 newProtocolFee
+    ) public onlyRole(OPERATOR_ROLE) {
+        protocolFee = newProtocolFee;
     }
 
     function setBeacon(address newBeacon) public onlyRole(OWNER_ROLE) {
@@ -55,11 +65,7 @@ contract PoolFactory is IPoolFactory, AccessControlEnumerable {
 
     function create(
         bytes calldata initData
-    )
-        external
-        onlyRole(OPERATOR_ROLE)
-        returns (uint poolId, address poolAddress)
-    {
+    ) external returns (uint poolId, address poolAddress) {
         require(beacon != address(0), "PoolFactory: Beacon not set");
 
         poolId = ++_poolCount;

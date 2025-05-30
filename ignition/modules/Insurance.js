@@ -9,9 +9,6 @@ const PROPOSER_ROLE_ID = ethers.solidityPackedKeccak256(
   ["PROPOSER_ROLE"]
 );
 
-// Constants for Claimer
-const VOTING_PERIOD = 1 * 60 * 60; // 1 hour for test purposes
-
 const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   const initialSupply = m.getParameter("initialSupply", INITIAL_SUPPLY);
   const wbtcInitialSupply = m.getParameter(
@@ -58,7 +55,8 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     m.getAccount(0), // owner (deployer)
     m.getAccount(0), // operator (deployer for now)
     m.getAccount(2), // capitalPool (unused account for now)
-    insurancePoolBeacon // beacon address
+    insurancePoolBeacon, // beacon address
+    1500, // 15% protocol fee
   ]);
 
   // Deploy upgradable Claimer
@@ -85,6 +83,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     1000, // 10%
     bonusPerEpisodeStaked, // Bonus per episode staked
     true,
+    1000, // 10% underwriter fee
   ]);
 
   // Create InsurancePool through factory
