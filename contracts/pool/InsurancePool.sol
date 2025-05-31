@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IPoolFactory} from "./IPoolFactory.sol";
-import {ICoverNFT} from "./ICoverNFT.sol";
+import {ICoverNFT} from "../cover/ICoverNFT.sol";
 
 event PoolJoined(
     uint endEpisode,
@@ -157,12 +157,13 @@ contract InsurancePool is OwnableUpgradeable {
         __Ownable_init(_governor);
         factory = IPoolFactory(msg.sender);
         poolId = factory.poolCount();
+        coverNFT = ICoverNFT(factory.coverNFT());
         updateGlobalSettings();
 
         poolUnderwriter =_poolUnderwritter;
         claimer = _claimer;
         poolAsset = IERC20(_poolAsset);
-        coverNFT = ICoverNFT(factory.coverNFT());
+        
         totalAssetsStaked = 0;
         totalPoolShares = 0;
         isNewDepositsAccepted = _isNewDepositsAccepted;

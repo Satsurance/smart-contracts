@@ -27,10 +27,7 @@ contract PoolFactory is IPoolFactory, AccessControlEnumerable {
         uint256 _protocolFee
     ) {
         _grantRole(DEFAULT_ADMIN_ROLE, _owner);
-        _grantRole(OWNER_ROLE, _owner);
         _grantRole(OPERATOR_ROLE, _operator);
-
-        _setRoleAdmin(OWNER_ROLE, DEFAULT_ADMIN_ROLE);
         _setRoleAdmin(OPERATOR_ROLE, OPERATOR_ROLE);
 
         coverNFT = _coverNFT;
@@ -55,7 +52,7 @@ contract PoolFactory is IPoolFactory, AccessControlEnumerable {
         protocolFee = newProtocolFee;
     }
 
-    function setBeacon(address newBeacon) public onlyRole(OWNER_ROLE) {
+    function setBeacon(address newBeacon) public onlyRole(DEFAULT_ADMIN_ROLE) {
         require(newBeacon != address(0), "PoolFactory: Invalid beacon");
 
         address oldBeacon = beacon;
