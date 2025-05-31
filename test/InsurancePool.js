@@ -131,7 +131,7 @@ describe("Insurance", async function () {
         ALLOWED_UNDERSTAKING
       );
 
-      const episodeDuration = await insurancePool.episodeDuration();
+      const episodeDuration = await insurancePool.EPISODE_DURATION();
       const additionalTimeNeeded = episodeDuration * additionalEpisodeDurationMultiplier;
 
       // Get owner's balance before quitting the pool

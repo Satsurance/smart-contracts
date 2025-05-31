@@ -92,6 +92,11 @@ struct Cover {
 
 
 contract InsurancePool is OwnableUpgradeable {
+    uint public constant MAX_PROTOCOL_FEE = 1500;
+    uint public constant MAX_UNDERWRITER_FEE = 1000;
+    uint256 public constant MAX_ACTIVE_EPISODES = 24;
+    uint public constant EPISODE_DURATION = 91 days / 3;
+
     uint public poolId;
     IPoolFactory public factory;
 
@@ -106,7 +111,6 @@ contract InsurancePool is OwnableUpgradeable {
     uint public bonusPerEpisodeStaked;
 
     uint public protocolFee;
-    uint public constant MAX_PROTOCOL_FEE = 1500;
     uint public constant BASIS_POINTS = 10000; // 100% in basis points
 
 
@@ -125,16 +129,12 @@ contract InsurancePool is OwnableUpgradeable {
     bool public isNewDepositsAccepted;
     uint public underwriterTotalShares;
     uint public underwriterFee;
-    uint public constant MAX_UNDERWRITER_FEE = 1000;
-
+    
 
     uint public minimumStakeAmount;
 
     // Episodes functions
-    uint public episodeDuration;
     mapping(uint => Episode) public episodes;
-    uint256 public constant MAX_ACTIVE_EPISODES = 24;
-
 
     uint public updatedRewardsAt;
     uint public accRewardRatePerShare;
@@ -177,7 +177,6 @@ contract InsurancePool is OwnableUpgradeable {
         totalPoolShares = 0;
         isNewDepositsAccepted = _isNewDepositsAccepted;
 
-        episodeDuration = 91 days/3;
         updatedRewardsAt = block.timestamp;
         minUnderwriterPercentage = _minUnderwriterPercentage;
         // 1$ in BTC
@@ -217,7 +216,7 @@ contract InsurancePool is OwnableUpgradeable {
             return;
         }
         uint currentEpisode = getCurrentEpisode();
-        uint lastUpdatedEpisode = updatedRewardsAt / episodeDuration;
+        uint lastUpdatedEpisode = updatedRewardsAt / EPISODE_DURATION;
 
         uint _updatedRewardsAt = updatedRewardsAt;
         for (uint i = lastUpdatedEpisode; i < currentEpisode; i++) {
@@ -237,7 +236,7 @@ contract InsurancePool is OwnableUpgradeable {
     }
 
     function _updateProductAllocation(Product storage product) internal  {
-        uint lastUpdatedEpisode = product.lastAllocationUpdate / episodeDuration;
+        uint lastUpdatedEpisode = product.lastAllocationUpdate / EPISODE_DURATION;
         uint currentEpisode = getCurrentEpisode();
         if(lastUpdatedEpisode == currentEpisode) {
             return;
@@ -278,7 +277,7 @@ contract InsurancePool is OwnableUpgradeable {
         return positions[account][positionId];
     }
 
-    function getReward(uint[] memory _positionsIds) external {
+    function collectRewards(uint[] memory _positionsIds) external {
         _updateEpisodesState();
         uint reward = earnedPositions(msg.sender, _positionsIds);
         if (reward > 0) {
@@ -506,7 +505,7 @@ contract InsurancePool is OwnableUpgradeable {
         uint currentEpisodeFinishTime = getEpisodeFinishTime(currentEpisode);
 
         // 1 year + leftover
-        uint rewardDuration = episodeDuration * 12 + (currentEpisodeFinishTime - block.timestamp);
+        uint rewardDuration = EPISODE_DURATION * 12 + (currentEpisodeFinishTime - block.timestamp);
         uint rewardRateIncrease = amount / rewardDuration;
         poolRewardRate += rewardRateIncrease;
 
@@ -543,7 +542,7 @@ contract InsurancePool is OwnableUpgradeable {
         _updateProductAllocation(product);
 
         // Check enough allocation
-        uint lastCoveredEpisode = (block.timestamp + coverageDuration) / episodeDuration;
+        uint lastCoveredEpisode = (block.timestamp + coverageDuration) / EPISODE_DURATION;
         uint requiredProductAllocation = ((coverageAmount + product.allocation) * BASIS_POINTS)/ product.maxPoolAllocationPercent;
         require(_verifyProductAllocation(lastCoveredEpisode, requiredProductAllocation), "Not enough assets to cover.");
         episodeAllocationCut[productId][lastCoveredEpisode] += coverageAmount;
@@ -587,7 +586,7 @@ contract InsurancePool is OwnableUpgradeable {
         uint64 maxPoolAllocationPercent
     ) external returns (uint) {
         require(msg.sender == poolUnderwriter, "Access check fail.");
-        require(maxCoverageDuration < (MAX_ACTIVE_EPISODES -1) * episodeDuration, "Max coverage duration is too long.");
+        require(maxCoverageDuration < (MAX_ACTIVE_EPISODES -1) * EPISODE_DURATION, "Max coverage duration is too long.");
         require(maxPoolAllocationPercent <= BASIS_POINTS, "Max pool allocation is too high.");
         require(annualPercent > 0, "Annual premium must be greater than 0.");
 
@@ -613,7 +612,7 @@ contract InsurancePool is OwnableUpgradeable {
         bool active
     ) external {
         require(msg.sender == poolUnderwriter, "Access check fail.");
-        require(maxCoverageDuration < (MAX_ACTIVE_EPISODES -1) * episodeDuration, "Max coverage duration is too long.");
+        require(maxCoverageDuration < (MAX_ACTIVE_EPISODES -1) * EPISODE_DURATION, "Max coverage duration is too long.");
         require(maxPoolAllocationPercent <= BASIS_POINTS, "Max pool allocation is too high.");
         require(annualPercent > 0, "Annual premium must be greater than 0.");
         require(productId < productCounter, "Product ID is too high.");
@@ -626,14 +625,14 @@ contract InsurancePool is OwnableUpgradeable {
     }
 
     function getCurrentEpisode() public view returns (uint) {
-        return (block.timestamp) / episodeDuration;
+        return (block.timestamp) / EPISODE_DURATION;
     }
 
-    function getEpisodeStartTime(uint episodeId) public view returns (uint) {
-        return episodeId * episodeDuration;
+    function getEpisodeStartTime(uint episodeId) public pure returns (uint) {
+        return episodeId * EPISODE_DURATION;
     }
 
-    function getEpisodeFinishTime(uint episodeId) public view returns (uint) {
-        return (episodeId + 1) * episodeDuration;
+    function getEpisodeFinishTime(uint episodeId) public pure returns (uint) {
+        return (episodeId + 1) * EPISODE_DURATION;
     }
 }

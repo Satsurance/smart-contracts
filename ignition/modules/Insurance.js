@@ -17,6 +17,13 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   );
   const bonusPerEpisodeStaked = m.getParameter("bonusPerEpisodeStaked", 0);
 
+  // Claimer parameters
+  const claimerOwner = m.getParameter("claimerOwner", m.getAccount(0));
+  const claimerOperatorManager = m.getParameter("claimerOperatorManager", m.getAccount(0));
+  const claimerOperator = m.getParameter("claimerOperator", m.getAccount(0));
+  const claimDeposit = m.getParameter("claimDeposit", 0);
+  const approvalPeriod = m.getParameter("approvalPeriod", 3 * 7 * 24 * 60 * 60); // 3 weeks
+
   // Mock Btc token
   let btcToken = m.contract("BTCToken", [wbtcInitialSupply]);
 
@@ -68,7 +75,12 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     [
       claimerLogic,
       m.encodeFunctionCall(claimerLogic, "initialize", [
-        m.getAccount(0), // approver address (account 0)
+        claimerOwner, // owner address
+        claimerOperatorManager, // operatorManager address
+        claimerOperator, // operator address
+        claimDeposit, // claimDeposit amount
+        btcToken, // depositToken address
+        approvalPeriod, // approvalPeriod in seconds
       ]),
     ],
     { id: "ClaimerProxy" }
