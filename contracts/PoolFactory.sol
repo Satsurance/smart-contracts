@@ -3,14 +3,17 @@ pragma solidity ^0.8.20;
 
 import {BeaconProxy} from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import "./IPoolFactory.sol";
 
 contract PoolFactory is IPoolFactory, AccessControlEnumerable {
     bytes32 public constant OWNER_ROLE = keccak256("OWNER_ROLE");
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
     address public beacon;
     address public capitalPool;
+    address public coverNFT;
     uint256 public protocolFee;
     uint96 internal _poolCount;
     mapping(uint => address) public pools;
@@ -20,6 +23,7 @@ contract PoolFactory is IPoolFactory, AccessControlEnumerable {
         address _operator,
         address _capitalPool,
         address _beacon,
+        address _coverNFT,
         uint256 _protocolFee
     ) {
         _grantRole(DEFAULT_ADMIN_ROLE, _owner);
@@ -29,6 +33,7 @@ contract PoolFactory is IPoolFactory, AccessControlEnumerable {
         _setRoleAdmin(OWNER_ROLE, DEFAULT_ADMIN_ROLE);
         _setRoleAdmin(OPERATOR_ROLE, OPERATOR_ROLE);
 
+        coverNFT = _coverNFT;
         setBeacon(_beacon);
         setCapitalPool(_capitalPool);
         setProtocolFee(_protocolFee);
@@ -69,11 +74,11 @@ contract PoolFactory is IPoolFactory, AccessControlEnumerable {
         require(beacon != address(0), "PoolFactory: Beacon not set");
 
         poolId = ++_poolCount;
-
         poolAddress = address(
             new BeaconProxy{salt: bytes32(poolId)}(beacon, initData)
         );
         pools[poolId] = poolAddress;
+        IAccessControl(coverNFT).grantRole(MINTER_ROLE, poolAddress);
 
         emit PoolCreated(poolId, poolAddress);
     }

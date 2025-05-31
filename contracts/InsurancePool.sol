@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IPoolFactory} from "./IPoolFactory.sol";
+import {ICoverNFT} from "./ICoverNFT.sol";
 
 event PoolJoined(
     uint endEpisode,
@@ -82,15 +83,6 @@ struct Product {
     bool active;
 }
 
-struct Cover {
-    address coveredAccount;
-    uint coveredAmount;
-    uint64 productId;
-    uint64 startDate;
-    uint64 endDate;
-}
-
-
 contract InsurancePool is OwnableUpgradeable {
     uint public constant MAX_PROTOCOL_FEE = 1500;
     uint public constant MAX_UNDERWRITER_FEE = 1000;
@@ -99,6 +91,7 @@ contract InsurancePool is OwnableUpgradeable {
 
     uint public poolId;
     IPoolFactory public factory;
+    ICoverNFT public coverNFT;
 
     address public capitalPool;
     address public claimer;
@@ -139,10 +132,6 @@ contract InsurancePool is OwnableUpgradeable {
     uint public updatedRewardsAt;
     uint public accRewardRatePerShare;
 
-    // Coverage tracking
-    uint64 public coverCounter;
-    mapping(uint => Cover) public covers;
-
     /**
      * @dev Storage gap to allow for future upgrades
      * This reserves storage slots for future variables
@@ -173,6 +162,7 @@ contract InsurancePool is OwnableUpgradeable {
         poolUnderwriter =_poolUnderwritter;
         claimer = _claimer;
         poolAsset = IERC20(_poolAsset);
+        coverNFT = ICoverNFT(factory.coverNFT());
         totalAssetsStaked = 0;
         totalPoolShares = 0;
         isNewDepositsAccepted = _isNewDepositsAccepted;
@@ -190,6 +180,10 @@ contract InsurancePool is OwnableUpgradeable {
     function updateClaimer(address newClaimer) onlyOwner external {
         require(newClaimer != address(0), "New claimer cannot be zero address");
         claimer = newClaimer;
+    }
+
+    function updateCoverNFT(address newCoverNFT) onlyOwner external {
+        coverNFT = ICoverNFT(newCoverNFT);
     }
 
     function updateGlobalSettings() public {
@@ -558,15 +552,15 @@ contract InsurancePool is OwnableUpgradeable {
 
         _rewardPool(premiumAmount - protocolFeeAmount - underwriterFeeAmount);
 
-
-        uint64 coverId = coverCounter++;
-        covers[coverId] = Cover({
-            productId: productId,
-            coveredAccount: coveredAccount,
-            coveredAmount: coverageAmount,
-            startDate: uint64(block.timestamp),
-            endDate: uint64(block.timestamp + coverageDuration)
-        });
+        coverNFT.mintCoverNFT(
+            msg.sender,
+            coveredAccount,
+            coverageAmount,
+            productId,
+            uint64(block.timestamp),
+            uint64(block.timestamp + coverageDuration),
+            uint64(poolId)
+        );
 
         emit NewCover(
             msg.sender,

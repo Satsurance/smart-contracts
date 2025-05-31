@@ -57,14 +57,40 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     timelock, // timelock as beacon owner
   ]);
 
+  // Deploy upgradable CoverNFT
+  let coverNFTLogic = m.contract("CoverNFT", [], {
+    id: "coverNFTLogic",
+  });
+  let coverNFTProxy = m.contract(
+    "ERC1967Proxy",
+    [
+      coverNFTLogic,
+      m.encodeFunctionCall(coverNFTLogic, "initialize", [
+        m.getAccount(0), // owner (deployer for now)
+        m.getAccount(0), // manager (deployer for now)
+      ]),
+    ],
+    { id: "CoverNFTProxy" }
+  );
+  const coverNFT = m.contractAt("CoverNFT", coverNFTProxy);
+
   // Deploy PoolFactory
   let poolFactory = m.contract("PoolFactory", [
     m.getAccount(0), // owner (deployer)
     m.getAccount(0), // operator (deployer for now)
     m.getAccount(2), // capitalPool (unused account for now)
     insurancePoolBeacon, // beacon address
+    coverNFT, // coverNFT address
     1500, // 15% protocol fee
   ]);
+
+  // Grant PoolFactory MANAGER_ROLE on CoverNFT to manage pool permissions
+  const MANAGER_ROLE = m.staticCall(coverNFT, "MANAGER_ROLE", []);
+  const DEFAULT_ADMIN_ROLE = m.staticCall(coverNFT, "DEFAULT_ADMIN_ROLE", []);
+  m.call(coverNFT, "grantRole", [MANAGER_ROLE, poolFactory], { id: "coverNFT1" });
+  m.call(coverNFT, "grantRole", [DEFAULT_ADMIN_ROLE, timelock], { id: "coverNFT2" });
+  m.call(coverNFT, "revokeRole", [MANAGER_ROLE, m.getAccount(0)], { id: "coverNFT3" });
+  const lastCoverNFTRoleTx = m.call(coverNFT, "revokeRole", [DEFAULT_ADMIN_ROLE, m.getAccount(0)], { id: "coverNFT4" });
 
   // Deploy upgradable Claimer
   let claimerLogic = m.contract("Claimer", [], {
@@ -99,7 +125,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   ]);
 
   // Create InsurancePool through factory
-  const createPoolCall = m.call(poolFactory, "create", [initData]);
+  const createPoolCall = m.call(poolFactory, "create", [initData], { after: [lastCoverNFTRoleTx] });
 
   // Get the created pool address and create contract instance
   const insurancePoolAddress = m.readEventArgument(
@@ -113,8 +139,10 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   const sursToken = m.contractAt("SursToken", sursTokenProxy);
   const claimer = m.contractAt("Claimer", claimerProxy);
 
+
   // Transfer token ownership to timelock
   m.call(sursToken, "transferOwnership", [timelock]);
+
 
   return {
     btcToken,
@@ -125,6 +153,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     claimer,
     poolFactory,
     insurancePoolBeacon,
+    coverNFT,
   };
 });
 
