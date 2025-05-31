@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+struct Cover {
+    address coveredAccount;
+    uint coveredAmount;
+    uint64 productId;
+    uint64 startDate;
+    uint64 endDate;
+    uint64 poolId;
+}
+
 interface ICoverNFT {
     /**
      * @dev Mint a cover NFT

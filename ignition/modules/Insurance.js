@@ -57,6 +57,9 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     timelock, // timelock as beacon owner
   ]);
 
+  // Deploy UriDescriptor
+  let uriDescriptor = m.contract("UriDescriptor", []);
+
   // Deploy upgradable CoverNFT
   let coverNFTLogic = m.contract("CoverNFT", [], {
     id: "coverNFTLogic",
@@ -68,6 +71,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
       m.encodeFunctionCall(coverNFTLogic, "initialize", [
         m.getAccount(0), // owner (deployer for now)
         m.getAccount(0), // manager (deployer for now)
+        uriDescriptor, // uriDescriptor address
       ]),
     ],
     { id: "CoverNFTProxy" }
@@ -154,6 +158,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     poolFactory,
     insurancePoolBeacon,
     coverNFT,
+    uriDescriptor,
   };
 });
 

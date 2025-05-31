@@ -9,15 +9,8 @@ import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol"
 import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/utils/Base64.sol";
-
-struct Cover {
-    address coveredAccount;
-    uint coveredAmount;
-    uint64 productId;
-    uint64 startDate;
-    uint64 endDate;
-    uint64 poolId;
-}
+import "./IUriDescriptor.sol";
+import "./ICoverNFT.sol";
 
 contract CoverNFT is
     Initializable,
@@ -37,7 +30,8 @@ contract CoverNFT is
     // Counter for generating unique cover IDs
     uint256 public coverIdCounter;
 
-    string public baseImageURI;
+    // URI descriptor contract for generating token URIs
+    IUriDescriptor public uriDescriptor;
 
     event CoverNFTMinted(
         uint256 indexed coverId,
@@ -52,12 +46,21 @@ contract CoverNFT is
 
     event CoverNFTBurned(uint256 indexed coverId, uint256 indexed poolId);
 
+    event UriDescriptorUpdated(
+        address indexed oldDescriptor,
+        address indexed newDescriptor
+    );
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
-    function initialize(address owner, address manager) public initializer {
+    function initialize(
+        address owner,
+        address manager,
+        address _uriDescriptor
+    ) public initializer {
         __Context_init();
         __UUPSUpgradeable_init();
         __AccessControl_init();
@@ -70,8 +73,11 @@ contract CoverNFT is
         _setRoleAdmin(MINTER_ROLE, MANAGER_ROLE);
         _setRoleAdmin(MANAGER_ROLE, DEFAULT_ADMIN_ROLE);
 
-        baseImageURI = "";
         coverIdCounter = 1; // Start token IDs from 1
+
+        // Set the URI descriptor
+        uriDescriptor = IUriDescriptor(_uriDescriptor);
+        emit UriDescriptorUpdated(address(0), _uriDescriptor);
     }
 
     /**
@@ -159,47 +165,20 @@ contract CoverNFT is
     function tokenURI(
         uint256 tokenId
     ) public view virtual override returns (string memory) {
-        require(
-            _ownerOf(tokenId) != address(0),
-            "CoverNFT: URI query for nonexistent token"
-        );
-
-        {
-            Cover memory cover = covers[tokenId];
-
-            bytes memory json = abi.encodePacked(
-                "{",
-                '"name": "Insurance Cover #',
-                tokenId.toString(),
-                '",',
-                '"description": "Insurance cover NFT from Pool #',
-                uint256(cover.poolId).toString(),
-                '",',
-                '"image": "',
-                baseImageURI,
-                tokenId.toString(),
-                '"',
-                "}"
-            );
-
-            return
-                string(
-                    abi.encodePacked(
-                        "data:application/json;base64,",
-                        Base64.encode(json)
-                    )
-                );
-        }
+        Cover memory cover = covers[tokenId];
+        return uriDescriptor.tokenURI(tokenId, cover);
     }
 
     /**
-     * @dev Sets the base URI for the NFT images
-     * @param _baseImageURI The new base URI for NFT images
+     * @dev Sets the URI descriptor contract
+     * @param _uriDescriptor The address of the new URI descriptor contract
      */
-    function setBaseImageURI(
-        string memory _baseImageURI
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        baseImageURI = _baseImageURI;
+    function setUriDescriptor(
+        address _uriDescriptor
+    ) external onlyRole(MANAGER_ROLE) {
+        address oldDescriptor = address(uriDescriptor);
+        uriDescriptor = IUriDescriptor(_uriDescriptor);
+        emit UriDescriptorUpdated(oldDescriptor, _uriDescriptor);
     }
 
     function _authorizeUpgrade(
