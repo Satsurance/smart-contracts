@@ -78,23 +78,34 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   );
   const coverNFT = m.contractAt("CoverNFT", coverNFTProxy);
 
-  // Deploy PoolFactory
-  let poolFactory = m.contract("PoolFactory", [
-    m.getAccount(0), // owner (deployer)
-    m.getAccount(0), // operator (deployer for now)
-    m.getAccount(2), // capitalPool (unused account for now)
-    insurancePoolBeacon, // beacon address
-    coverNFT, // coverNFT address
-    1500, // 15% protocol fee
-  ]);
+  // Deploy upgradable PoolFactory
+  let poolFactoryLogic = m.contract("PoolFactory", [], {
+    id: "poolFactoryLogic",
+  });
+  let poolFactoryProxy = m.contract(
+    "ERC1967Proxy",
+    [
+      poolFactoryLogic,
+      m.encodeFunctionCall(poolFactoryLogic, "initialize", [
+        m.getAccount(0), // owner (deployer)
+        m.getAccount(0), // operator (deployer for now)
+        m.getAccount(2), // capitalPool (unused account for now)
+        insurancePoolBeacon, // beacon address
+        coverNFT, // coverNFT address
+        1500, // 15% protocol fee
+      ]),
+    ],
+    { id: "PoolFactoryProxy" }
+  );
+  const poolFactory = m.contractAt("PoolFactory", poolFactoryProxy);
 
   // Grant PoolFactory MANAGER_ROLE on CoverNFT to manage pool permissions
   const MANAGER_ROLE = m.staticCall(coverNFT, "MANAGER_ROLE", []);
   const DEFAULT_ADMIN_ROLE = m.staticCall(coverNFT, "DEFAULT_ADMIN_ROLE", []);
-  m.call(coverNFT, "grantRole", [MANAGER_ROLE, poolFactory], { id: "coverNFT1" });
-  m.call(coverNFT, "grantRole", [DEFAULT_ADMIN_ROLE, timelock], { id: "coverNFT2" });
-  m.call(coverNFT, "revokeRole", [MANAGER_ROLE, m.getAccount(0)], { id: "coverNFT3" });
-  const lastCoverNFTRoleTx = m.call(coverNFT, "revokeRole", [DEFAULT_ADMIN_ROLE, m.getAccount(0)], { id: "coverNFT4" });
+  const cc1 = m.call(coverNFT, "grantRole", [MANAGER_ROLE, poolFactory], { id: "coverNFT1" });
+  const cc2 = m.call(coverNFT, "grantRole", [DEFAULT_ADMIN_ROLE, timelock], { id: "coverNFT2" });
+  const cc3 = m.call(coverNFT, "revokeRole", [MANAGER_ROLE, m.getAccount(0)], { id: "coverNFT3" });
+  const lastCoverNFTRoleTx = m.call(coverNFT, "revokeRole", [DEFAULT_ADMIN_ROLE, m.getAccount(0)], { id: "coverNFT4", after: [cc1, cc2, cc3] });
 
   // Deploy upgradable Claimer
   let claimerLogic = m.contract("Claimer", [], {

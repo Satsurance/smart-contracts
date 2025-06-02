@@ -2,11 +2,16 @@
 pragma solidity ^0.8.20;
 
 import {BeaconProxy} from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
-import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {AccessControlEnumerableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import "./IPoolFactory.sol";
 
-contract PoolFactory is IPoolFactory, AccessControlEnumerable {
+contract PoolFactory is
+    IPoolFactory,
+    Initializable,
+    AccessControlEnumerableUpgradeable
+{
     bytes32 public constant OWNER_ROLE = keccak256("OWNER_ROLE");
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
@@ -18,14 +23,21 @@ contract PoolFactory is IPoolFactory, AccessControlEnumerable {
     uint96 internal _poolCount;
     mapping(uint => address) public pools;
 
-    constructor(
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(
         address _owner,
         address _operator,
         address _capitalPool,
         address _beacon,
         address _coverNFT,
         uint256 _protocolFee
-    ) {
+    ) public initializer {
+        __AccessControlEnumerable_init();
+
         _grantRole(DEFAULT_ADMIN_ROLE, _owner);
         _grantRole(OPERATOR_ROLE, _operator);
         _setRoleAdmin(OPERATOR_ROLE, OPERATOR_ROLE);
