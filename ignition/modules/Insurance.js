@@ -92,6 +92,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
         m.getAccount(2), // capitalPool (unused account for now)
         insurancePoolBeacon, // beacon address
         coverNFT, // coverNFT address
+        m.getAccount(0), // guardian (same as owner for now)
         1500, // 15% protocol fee
       ]),
     ],

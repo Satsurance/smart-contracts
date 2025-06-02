@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {IPoolFactory} from "./IPoolFactory.sol";
 import {ICoverNFT} from "../cover/ICoverNFT.sol";
 
@@ -46,6 +47,11 @@ event GlobalSettingsUpdated(
     uint protocolFee
 );
 
+event GuardianUpdated(
+    address indexed oldGuardian,
+    address indexed newGuardian
+);
+
 event PoolPositionExtended(
     address indexed user,
     uint positionId,
@@ -83,7 +89,7 @@ struct Product {
     bool active;
 }
 
-contract InsurancePool is OwnableUpgradeable {
+contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     uint public constant MAX_PROTOCOL_FEE = 1500;
     uint public constant MAX_UNDERWRITER_FEE = 1000;
     uint256 public constant MAX_ACTIVE_EPISODES = 24;
@@ -95,6 +101,7 @@ contract InsurancePool is OwnableUpgradeable {
 
     address public capitalPool;
     address public claimer;
+    address public guardian;
     IERC20 public poolAsset;
 
     uint public totalAssetsStaked;
@@ -155,6 +162,7 @@ contract InsurancePool is OwnableUpgradeable {
         require(_underwriterFee <= MAX_UNDERWRITER_FEE, "Underwriter fee too high.");
 
         __Ownable_init(_governor);
+        __Pausable_init();
         factory = IPoolFactory(msg.sender);
         poolId = factory.poolCount();
         coverNFT = ICoverNFT(factory.coverNFT());
@@ -183,13 +191,21 @@ contract InsurancePool is OwnableUpgradeable {
         claimer = newClaimer;
     }
 
-    function updateCoverNFT(address newCoverNFT) onlyOwner external {
-        coverNFT = ICoverNFT(newCoverNFT);
+
+    function pause() external {
+        require(msg.sender == guardian, "Only guardian can pause");
+        _pause();
+    }
+
+    function unpause() external {
+        require(msg.sender == guardian, "Only guardian can unpause");
+        _unpause();
     }
 
     function updateGlobalSettings() public {
         capitalPool = factory.capitalPool();
         protocolFee = factory.protocolFee();
+        guardian = factory.guardian();
         require(protocolFee <= MAX_PROTOCOL_FEE, "Protocol fee too high.");
         
         emit GlobalSettingsUpdated(
@@ -304,7 +320,7 @@ contract InsurancePool is OwnableUpgradeable {
     function joinPool(
         uint _amount,
         uint _episodeToStake
-    ) external returns (bool completed) {
+    ) external whenNotPaused returns (bool completed) {
         require(_amount >= minimumStakeAmount, "Too small staking amount.");
         require(msg.sender == poolUnderwriter || isNewDepositsAccepted, "New deposits are not allowed.");
 
@@ -356,7 +372,7 @@ contract InsurancePool is OwnableUpgradeable {
         return true;
     }
 
-    function extendPoolPosition(uint _positionId, uint _episodeToStake, uint _sharesToWithdraw) external returns (bool) {
+    function extendPoolPosition(uint _positionId, uint _episodeToStake, uint _sharesToWithdraw) external whenNotPaused returns (bool) {
         require(msg.sender == poolUnderwriter || isNewDepositsAccepted, "Extended deposits are not allowed.");
 
         uint currentEpisode = getCurrentEpisode();
@@ -425,7 +441,7 @@ contract InsurancePool is OwnableUpgradeable {
         return true;
     }
 
-    function quitPoolPosition(uint positionId) external returns (bool completed) {
+    function quitPoolPosition(uint positionId) external whenNotPaused returns (bool completed) {
         address toRemove = msg.sender;
         uint currentEpisode = getCurrentEpisode();
         PoolStake memory position = positions[toRemove][positionId];
@@ -474,7 +490,7 @@ contract InsurancePool is OwnableUpgradeable {
     function executeClaim(
         address receiver,
         uint amount
-    ) external returns (bool completed) {
+    ) external whenNotPaused returns (bool completed) {
         require(msg.sender == claimer, "Caller is not the claimer");
         _updateEpisodesState();
         uint currentEpisode = getCurrentEpisode();
@@ -526,7 +542,7 @@ contract InsurancePool is OwnableUpgradeable {
         address coveredAccount,
         uint coverageDuration,
         uint coverageAmount
-    ) external returns (bool completed) {
+    ) external whenNotPaused returns (bool completed) {
         Product storage product = products[productId];
         require(product.active, "Product is not active.");
         require(coverageDuration <= product.maxCoverageDuration, "Coverage duration is too long.");

@@ -19,6 +19,7 @@ contract PoolFactory is
     address public beacon;
     address public capitalPool;
     address public coverNFT;
+    address public guardian;
     uint256 public protocolFee;
     uint96 internal _poolCount;
     mapping(uint => address) public pools;
@@ -34,6 +35,7 @@ contract PoolFactory is
         address _capitalPool,
         address _beacon,
         address _coverNFT,
+        address _guardian,
         uint256 _protocolFee
     ) public initializer {
         __AccessControlEnumerable_init();
@@ -45,6 +47,7 @@ contract PoolFactory is
         coverNFT = _coverNFT;
         setBeacon(_beacon);
         setCapitalPool(_capitalPool);
+        setGuardian(_guardian);
         setProtocolFee(_protocolFee);
     }
 
@@ -56,6 +59,11 @@ contract PoolFactory is
             "PoolFactory: Invalid capital pool"
         );
         capitalPool = newCapitalPool;
+    }
+
+    function setGuardian(address newGuardian) public onlyRole(OPERATOR_ROLE) {
+        require(newGuardian != address(0), "PoolFactory: Invalid guardian");
+        guardian = newGuardian;
     }
 
     function setProtocolFee(
