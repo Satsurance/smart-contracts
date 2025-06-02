@@ -5,7 +5,7 @@ import {BeaconProxy} from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol"
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {AccessControlEnumerableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
-import "./IPoolFactory.sol";
+import "../interfaces/IPoolFactory.sol";
 
 contract PoolFactory is
     IPoolFactory,
@@ -19,6 +19,7 @@ contract PoolFactory is
     address public beacon;
     address public capitalPool;
     address public coverNFT;
+    address public positionNFT;
     address public guardian;
     uint256 public protocolFee;
     uint96 internal _poolCount;
@@ -35,6 +36,7 @@ contract PoolFactory is
         address _capitalPool,
         address _beacon,
         address _coverNFT,
+        address _positionNFT,
         address _guardian,
         uint256 _protocolFee
     ) public initializer {
@@ -45,6 +47,7 @@ contract PoolFactory is
         _setRoleAdmin(OPERATOR_ROLE, OPERATOR_ROLE);
 
         coverNFT = _coverNFT;
+        positionNFT = _positionNFT;
         setBeacon(_beacon);
         setCapitalPool(_capitalPool);
         setGuardian(_guardian);
@@ -59,6 +62,16 @@ contract PoolFactory is
             "PoolFactory: Invalid capital pool"
         );
         capitalPool = newCapitalPool;
+    }
+
+    function setPositionNFT(
+        address newPositionNFT
+    ) public onlyRole(OPERATOR_ROLE) {
+        require(
+            newPositionNFT != address(0),
+            "PoolFactory: Invalid position NFT"
+        );
+        positionNFT = newPositionNFT;
     }
 
     function setGuardian(address newGuardian) public onlyRole(OPERATOR_ROLE) {
@@ -96,6 +109,7 @@ contract PoolFactory is
         );
         pools[poolId] = poolAddress;
         IAccessControl(coverNFT).grantRole(MINTER_ROLE, poolAddress);
+        IAccessControl(positionNFT).grantRole(MINTER_ROLE, poolAddress);
 
         emit PoolCreated(poolId, poolAddress);
     }

@@ -78,7 +78,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   );
   const coverNFT = m.contractAt("CoverNFT", coverNFTProxy);
 
-  // Deploy upgradable PoolFactory
+  // Deploy upgradable PoolFactory first (without positionNFT)
   let poolFactoryLogic = m.contract("PoolFactory", [], {
     id: "poolFactoryLogic",
   });
@@ -92,6 +92,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
         m.getAccount(2), // capitalPool (unused account for now)
         insurancePoolBeacon, // beacon address
         coverNFT, // coverNFT address
+        "0x0000000000000000000000000000000000000000", // positionNFT placeholder
         m.getAccount(0), // guardian (same as owner for now)
         1500, // 15% protocol fee
       ]),
@@ -100,6 +101,30 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   );
   const poolFactory = m.contractAt("PoolFactory", poolFactoryProxy);
 
+  // Deploy upgradable PositionNFT
+  let positionNFTLogic = m.contract("PositionNFT", [], {
+    id: "positionNFTLogic",
+  });
+
+  // Now deploy PositionNFT with poolFactory address
+  let positionNFTProxy = m.contract(
+    "ERC1967Proxy",
+    [
+      positionNFTLogic,
+      m.encodeFunctionCall(positionNFTLogic, "initialize", [
+        poolFactory, // poolFactory address
+        m.getAccount(0), // owner (deployer for now)
+        m.getAccount(0), // manager (deployer for now)
+        uriDescriptor, // uriDescriptor address
+      ]),
+    ],
+    { id: "PositionNFTProxy" }
+  );
+  const positionNFT = m.contractAt("PositionNFT", positionNFTProxy);
+
+  // Update poolFactory with the positionNFT address
+  const setPositionNFTCall = m.call(poolFactory, "setPositionNFT", [positionNFT]);
+
   // Grant PoolFactory MANAGER_ROLE on CoverNFT to manage pool permissions
   const MANAGER_ROLE = m.staticCall(coverNFT, "MANAGER_ROLE", []);
   const DEFAULT_ADMIN_ROLE = m.staticCall(coverNFT, "DEFAULT_ADMIN_ROLE", []);
@@ -107,6 +132,14 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   const cc2 = m.call(coverNFT, "grantRole", [DEFAULT_ADMIN_ROLE, timelock], { id: "coverNFT2" });
   const cc3 = m.call(coverNFT, "revokeRole", [MANAGER_ROLE, m.getAccount(0)], { id: "coverNFT3" });
   const lastCoverNFTRoleTx = m.call(coverNFT, "revokeRole", [DEFAULT_ADMIN_ROLE, m.getAccount(0)], { id: "coverNFT4", after: [cc1, cc2, cc3] });
+
+  // Grant PoolFactory MANAGER_ROLE on PositionNFT to manage pool permissions
+  const POSITION_MANAGER_ROLE = m.staticCall(positionNFT, "MANAGER_ROLE", []);
+  const POSITION_DEFAULT_ADMIN_ROLE = m.staticCall(positionNFT, "DEFAULT_ADMIN_ROLE", []);
+  const pc1 = m.call(positionNFT, "grantRole", [POSITION_MANAGER_ROLE, poolFactory], { id: "positionNFT1", after: [setPositionNFTCall] });
+  const pc2 = m.call(positionNFT, "grantRole", [POSITION_DEFAULT_ADMIN_ROLE, timelock], { id: "positionNFT2", after: [setPositionNFTCall] });
+  const pc3 = m.call(positionNFT, "revokeRole", [POSITION_MANAGER_ROLE, m.getAccount(0)], { id: "positionNFT3" });
+  const lastPositionNFTRoleTx = m.call(positionNFT, "revokeRole", [POSITION_DEFAULT_ADMIN_ROLE, m.getAccount(0)], { id: "positionNFT4", after: [pc1, pc2, pc3] });
 
   // Deploy upgradable Claimer
   let claimerLogic = m.contract("Claimer", [], {
@@ -141,7 +174,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   ]);
 
   // Create InsurancePool through factory
-  const createPoolCall = m.call(poolFactory, "create", [initData], { after: [lastCoverNFTRoleTx] });
+  const createPoolCall = m.call(poolFactory, "create", [initData], { after: [lastCoverNFTRoleTx, lastPositionNFTRoleTx] });
 
   // Get the created pool address and create contract instance
   const insurancePoolAddress = m.readEventArgument(
@@ -170,6 +203,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     poolFactory,
     insurancePoolBeacon,
     coverNFT,
+    positionNFT,
     uriDescriptor,
   };
 });

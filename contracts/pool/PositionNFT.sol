@@ -9,10 +9,11 @@ import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol"
 import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/utils/Base64.sol";
-import "../interfaces/IUriDescriptor.sol";
-import "../interfaces/ICoverNFT.sol";
+import "../interfaces/IPositionUriDescriptor.sol";
+import "../interfaces/IPoolFactory.sol";
+import "../interfaces/IInsurancePool.sol";
 
-contract CoverNFT is
+contract PositionNFT is
     Initializable,
     ContextUpgradeable,
     UUPSUpgradeable,
@@ -24,27 +25,12 @@ contract CoverNFT is
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
-    // Mapping from coverId to cover data
-    mapping(uint256 => Cover) public covers;
+    mapping(uint => uint) public positionPool;
+    uint256 public positionIdCounter;
 
-    // Counter for generating unique cover IDs
-    uint256 public coverIdCounter;
+    IPoolFactory public poolFactory;
 
-    // URI descriptor contract for generating token URIs
-    IUriDescriptor public uriDescriptor;
-
-    event CoverNFTMinted(
-        uint256 indexed coverId,
-        address indexed to,
-        address indexed pool,
-        address coveredAccount,
-        uint256 coveredAmount,
-        uint64 productId,
-        uint64 startDate,
-        uint64 endDate
-    );
-
-    event CoverNFTBurned(uint256 indexed coverId, uint256 indexed poolId);
+    IPositionUriDescriptor public uriDescriptor;
 
     event UriDescriptorUpdated(
         address indexed oldDescriptor,
@@ -57,6 +43,7 @@ contract CoverNFT is
     }
 
     function initialize(
+        address _poolFactory,
         address owner,
         address manager,
         address _uriDescriptor
@@ -64,7 +51,7 @@ contract CoverNFT is
         __Context_init();
         __UUPSUpgradeable_init();
         __AccessControl_init();
-        __ERC721_init("Insurance Cover NFT", "COVERNFT");
+        __ERC721_init("Position NFT", "POSITIONNFT");
         __ERC721Enumerable_init();
 
         // Setup roles
@@ -73,87 +60,42 @@ contract CoverNFT is
         _setRoleAdmin(MINTER_ROLE, MANAGER_ROLE);
         _setRoleAdmin(MANAGER_ROLE, DEFAULT_ADMIN_ROLE);
 
-        coverIdCounter = 1; // Start token IDs from 1
+        positionIdCounter = 1;
+        poolFactory = IPoolFactory(_poolFactory);
 
-        // Set the URI descriptor
-        uriDescriptor = IUriDescriptor(_uriDescriptor);
+        uriDescriptor = IPositionUriDescriptor(_uriDescriptor);
         emit UriDescriptorUpdated(address(0), _uriDescriptor);
     }
 
     /**
-     * @dev Mint a cover NFT - can only be called by authorized minters (insurance pools)
+     * @dev Mint a position NFT - can only be called by authorized minters (insurance pools)
      * @param to The address to mint the NFT to
-     * @param coveredAccount The account that is covered
-     * @param coveredAmount The amount covered
-     * @param productId The product ID
-     * @param startDate The start date of coverage
-     * @param endDate The end date of coverage
-     * @param poolId The pool ID that issued this cover
+     * @param poolId The pool ID that issued this position
      */
-    function mintCoverNFT(
+    function mintPositionNFT(
         address to,
-        address coveredAccount,
-        uint256 coveredAmount,
-        uint64 productId,
-        uint64 startDate,
-        uint64 endDate,
         uint64 poolId
-    ) external onlyRole(MINTER_ROLE) {
-        uint256 coverId = coverIdCounter;
-        coverIdCounter++;
+    ) external onlyRole(MINTER_ROLE) returns (uint) {
+        uint256 positionId = positionIdCounter;
+        positionIdCounter++;
 
-        covers[coverId] = Cover({
-            coveredAccount: coveredAccount,
-            coveredAmount: coveredAmount,
-            productId: productId,
-            startDate: startDate,
-            endDate: endDate,
-            poolId: poolId
-        });
+        positionPool[positionId] = poolId;
 
-        _mint(to, coverId);
+        _mint(to, positionId);
 
-        emit CoverNFTMinted(
-            coverId,
-            to,
-            _msgSender(),
-            coveredAccount,
-            coveredAmount,
-            productId,
-            startDate,
-            endDate
-        );
+        return positionId;
     }
 
     /**
-     * @dev Burn a cover NFT - can only be called by the NFT holder if cover has expired
-     * @param coverId The ID of the cover NFT to burn
+     * @dev Burn a position NFT - can only be called by the NFT holder
+     * @param positionId The ID of the position NFT to burn
      * @return True if successful
      */
-    function burnCoverNFT(uint256 coverId) external returns (bool) {
-        require(
-            _ownerOf(coverId) != address(0),
-            "CoverNFT: Token does not exist"
-        );
-
-        require(
-            ownerOf(coverId) == _msgSender(),
-            "CoverNFT: Only the NFT holder can burn"
-        );
-
-        Cover memory cover = covers[coverId];
-        require(
-            block.timestamp > cover.endDate,
-            "CoverNFT: Cover has not expired yet"
-        );
-
-        delete covers[coverId];
-
-        // Burn the NFT
-        _burn(coverId);
-
-        emit CoverNFTBurned(coverId, cover.poolId);
-
+    function burnPositionNFT(
+        uint256 positionId
+    ) external onlyRole(MINTER_ROLE) returns (bool) {
+        delete positionPool[positionId];
+        _burn(positionId);
         return true;
     }
 
@@ -165,8 +107,9 @@ contract CoverNFT is
     function tokenURI(
         uint256 tokenId
     ) public view virtual override returns (string memory) {
-        Cover memory cover = covers[tokenId];
-        return uriDescriptor.tokenURI(tokenId, cover);
+        uint poolId = positionPool[tokenId];
+
+        return uriDescriptor.tokenURI(tokenId, poolId);
     }
 
     /**
@@ -177,7 +120,7 @@ contract CoverNFT is
         address _uriDescriptor
     ) external onlyRole(MANAGER_ROLE) {
         address oldDescriptor = address(uriDescriptor);
-        uriDescriptor = IUriDescriptor(_uriDescriptor);
+        uriDescriptor = IPositionUriDescriptor(_uriDescriptor);
         emit UriDescriptorUpdated(oldDescriptor, _uriDescriptor);
     }
 
@@ -200,24 +143,34 @@ contract CoverNFT is
             AccessControlUpgradeable.supportsInterface(interfaceId);
     }
 
+    function _getPoolUnderwriter(
+        uint256 positionId
+    ) internal view returns (address) {
+        return
+            IInsurancePool(poolFactory.pools(positionPool[positionId]))
+                .poolUnderwriter();
+    }
+
     /**
-     * @dev Override _transfer to make the NFT soulbound (non-transferable)
-     * Only allows minting (from zero address) and burning (to zero address)
+     * @dev Override transferFrom to prevent transfers to and from pool underwriter
+     * Allows normal transfers between other addresses
      */
     function transferFrom(
         address from,
         address to,
         uint256 tokenId
     ) public virtual override(ERC721Upgradeable, IERC721) {
+        address underwriter = _getPoolUnderwriter(tokenId);
         require(
-            from == address(0) || to == address(0),
-            "CoverNFT: Token is soulbound and cannot be transferred"
+            from != underwriter && to != underwriter,
+            "PositionNFT: Can't transfer to and from pool underwriter."
         );
         super.transferFrom(from, to, tokenId);
     }
 
     /**
-     * @dev Override safeTransferFrom to make the NFT soulbound (non-transferable)
+     * @dev Override safeTransferFrom to prevent transfers to and from pool underwriter
+     * Allows normal transfers between other addresses
      */
     function safeTransferFrom(
         address from,
@@ -225,9 +178,10 @@ contract CoverNFT is
         uint256 tokenId,
         bytes memory data
     ) public virtual override(ERC721Upgradeable, IERC721) {
+        address underwriter = _getPoolUnderwriter(tokenId);
         require(
-            from == address(0) || to == address(0),
-            "CoverNFT: Token is soulbound and cannot be transferred"
+            from != underwriter && to != underwriter,
+            "PositionNFT: Can't transfer to and from pool underwriter."
         );
         super.safeTransferFrom(from, to, tokenId, data);
     }

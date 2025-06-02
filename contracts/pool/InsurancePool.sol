@@ -4,8 +4,9 @@ pragma solidity ^0.8.20;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
-import {IPoolFactory} from "./IPoolFactory.sol";
-import {ICoverNFT} from "../cover/ICoverNFT.sol";
+import {IPoolFactory} from "../interfaces/IPoolFactory.sol";
+import {ICoverNFT} from "../interfaces/ICoverNFT.sol";
+import {IPositionNFT} from "../interfaces/IPositionNFT.sol";
 
 event PoolJoined(
     uint endEpisode,
@@ -98,6 +99,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     uint public poolId;
     IPoolFactory public factory;
     ICoverNFT public coverNFT;
+    IPositionNFT public positionNFT;
 
     address public capitalPool;
     address public claimer;
@@ -119,9 +121,8 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     mapping(uint => Product) public products;
     mapping(uint => mapping(uint => uint)) public episodeAllocationCut; // productId => episode => allocationCut
 
-    // User position track mappings
-    mapping(address => mapping(uint => PoolStake)) public positions;
-    mapping(address => uint) public positionCounter;
+    // Position track mapping
+    mapping(uint => PoolStake) public positions;
 
     // Underwriters
     uint public minUnderwriterPercentage;
@@ -166,6 +167,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         factory = IPoolFactory(msg.sender);
         poolId = factory.poolCount();
         coverNFT = ICoverNFT(factory.coverNFT());
+        positionNFT = IPositionNFT(factory.positionNFT());
         updateGlobalSettings();
 
         poolUnderwriter =_poolUnderwritter;
@@ -267,9 +269,10 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     }
 
 
-    function earnedPosition(address _account, uint _positionId) public returns (uint) {
+    function earnedPosition(uint _positionId) public returns (uint) {
+        // TODO: FIX BUG HERE
         _updateEpisodesState();
-        PoolStake storage position = positions[_account][_positionId];
+        PoolStake storage position = positions[_positionId];
         uint reward = 0;
         reward = (position.rewardShares * (accRewardRatePerShare - position.rewardPerShare)) / 1e18;
         position.rewardPerShare = accRewardRatePerShare;
@@ -278,19 +281,19 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
 
 
-    function earnedPositions(address _account, uint[] memory _positionsIds) public returns (uint reward) {
+    function earnedPositions(uint[] memory _positionsIds) public returns (uint reward) {
         for(uint i = 0; i < _positionsIds.length; i++) {
-            reward += earnedPosition(_account, _positionsIds[i]);
+            reward += earnedPosition(_positionsIds[i]);
         }
     }
 
-    function getPoolPosition(address account, uint positionId) external view returns (PoolStake memory position) {
-        return positions[account][positionId];
+    function getPoolPosition(uint positionId) external view returns (PoolStake memory position) {
+        return positions[positionId];
     }
 
     function collectRewards(uint[] memory _positionsIds) external {
         _updateEpisodesState();
-        uint reward = earnedPositions(msg.sender, _positionsIds);
+        uint reward = earnedPositions(_positionsIds);
         if (reward > 0) {
             poolAsset.transfer(msg.sender, reward);
         }
@@ -331,7 +334,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
         _updateEpisodesState();
 
-        uint newPositionId = positionCounter[msg.sender]++;
+        uint newPositionId = positionNFT.mintPositionNFT(msg.sender, uint64(poolId));
         uint newShares = totalPoolShares == 0 ? _amount : (_amount * totalPoolShares) / totalAssetsStaked;
         uint newRewardShares = newShares + newShares * (_episodeToStake - currentEpisode - 2) * bonusPerEpisodeStaked / BASIS_POINTS;
         require(msg.sender == poolUnderwriter || newShares <= maxSharesUserToStake(), "Underwriter position can't be less than allowed.");
@@ -342,7 +345,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         targetEpisode.rewardShares += newRewardShares;
 
         // Save position
-        positions[msg.sender][newPositionId] = PoolStake({
+        positions[newPositionId] = PoolStake({
             episode: _episodeToStake,
             shares: newShares,
             rewardShares: newRewardShares,
@@ -373,6 +376,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     }
 
     function extendPoolPosition(uint _positionId, uint _episodeToStake, uint _sharesToWithdraw) external whenNotPaused returns (bool) {
+        require(msg.sender == positionNFT.ownerOf(_positionId), "Only position owner can extend.");
         require(msg.sender == poolUnderwriter || isNewDepositsAccepted, "Extended deposits are not allowed.");
 
         uint currentEpisode = getCurrentEpisode();
@@ -382,7 +386,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
         _updateEpisodesState();
 
-        PoolStake storage position = positions[msg.sender][_positionId];
+        PoolStake storage position = positions[_positionId];
         require(msg.sender == poolUnderwriter || position.shares - _sharesToWithdraw <= maxSharesUserToStake(), "Underwriter position can't be less than allowed.");
         require(position.episode < currentEpisode || _sharesToWithdraw == 0, "It is possible to withdraw on extend only for the expired positions.");
         
@@ -390,7 +394,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         uint withdrawAmount = 0;
         if(position.episode < currentEpisode) {
             // Calculate reward and also update the position reward per share
-            withdrawAmount += earnedPosition(msg.sender, _positionId);
+            withdrawAmount += earnedPosition(_positionId);
         }
 
         
@@ -444,7 +448,8 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     function quitPoolPosition(uint positionId) external whenNotPaused returns (bool completed) {
         address toRemove = msg.sender;
         uint currentEpisode = getCurrentEpisode();
-        PoolStake memory position = positions[toRemove][positionId];
+        PoolStake memory position = positions[positionId];
+        require(toRemove == positionNFT.ownerOf(positionId), "Only position owner can extend.");
         require(position.active, "Position inactive.");
         require(position.episode < currentEpisode, "Funds are timelocked.");
         _updateEpisodesState();
@@ -455,7 +460,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
          );
 
 
-        uint rewards = earnedPosition(toRemove, positionId);
+        uint rewards = earnedPosition(positionId);
         // First calculate withdraw based on shares in the episode
         Episode storage ep = episodes[position.episode];
         uint withdrawAmount = (position.shares * ep.assetsStaked)/ ep.episodeShares;
@@ -468,7 +473,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         if(toRemove == poolUnderwriter) {
             underwriterTotalShares -= position.shares;
         }
-        positions[toRemove][positionId].active = false;
+        positions[positionId].active = false;
 
 
         withdrawAmount += rewards;

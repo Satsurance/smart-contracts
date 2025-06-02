@@ -19,6 +19,8 @@ interface IPoolFactory {
 
     function coverNFT() external view returns (address);
 
+    function positionNFT() external view returns (address);
+
     function protocolFee() external view returns (uint256);
 
     function poolCount() external view returns (uint);

@@ -66,7 +66,7 @@ describe("Insurance", async function () {
       const expectedOwnerRewardAmount = (minimumRewardAmount / 11n * rewardPercentage) / 100n;
       const expectedPositionValueAfterSlash = ethers.parseUnits((((110 - 3) / 110) * 10).toString(), "ether");
 
-      const { btcToken, sursToken, insurancePool, claimer } = await loadFixture(
+      const { btcToken, sursToken, insurancePool, claimer, positionNFT } = await loadFixture(
         basicFixture
       );
       // Get accounts matching Ignition setup
@@ -81,14 +81,20 @@ describe("Insurance", async function () {
         .connect(poolUnderwriter)
         .joinPool(underwriterStakeAmount, episodeToStake);
 
+      // Get underwriter position ID - first position for poolUnderwriter
+      const underwriterPositionId = await positionNFT.tokenOfOwnerByIndex(poolUnderwriter.address, 0);
+
       // Now owner can make a position
       await insurancePool.joinPool(ownerStakeAmount, episodeToStake);
 
-      const init_position = await insurancePool.getPoolPosition(owner, 0);
+      // Get owner position ID - first position for owner
+      const ownerPositionId = await positionNFT.tokenOfOwnerByIndex(owner.address, 0);
+
+      const init_position = await insurancePool.getPoolPosition(ownerPositionId);
       const total_assets = await insurancePool.totalAssetsStaked();
       const total_shares = await insurancePool.totalPoolShares();
       expect(init_position.active).to.be.true;
-      expect((init_position[1] * total_assets) / total_shares).to.equal(ownerStakeAmount);
+      expect((init_position.shares * total_assets) / total_shares).to.equal(ownerStakeAmount);
 
       // Check reward logic - owner can buy coverage directly
       await purchaseCoverage({
@@ -101,7 +107,7 @@ describe("Insurance", async function () {
 
       // It is required some time to have all the rewards distributed.
       await time.increaseTo((await time.latest()) + SECS_IN_DAY * 500);
-      const earnedAmount = await insurancePool.earnedPosition.staticCall(owner, 0);
+      const earnedAmount = await insurancePool.earnedPosition.staticCall(ownerPositionId);
       // There are some precision errors
       expect(earnedAmount).to.approximately(
         expectedOwnerRewardAmount,
@@ -125,7 +131,7 @@ describe("Insurance", async function () {
       const new_total_assets = await insurancePool.totalAssetsStaked();
       const new_total_shares = await insurancePool.totalPoolShares();
       expect(
-        (init_position[1] * new_total_assets) / new_total_shares
+        (init_position.shares * new_total_assets) / new_total_shares
       ).to.approximately(
         expectedPositionValueAfterSlash,
         ALLOWED_UNDERSTAKING
@@ -138,17 +144,17 @@ describe("Insurance", async function () {
       const balanceBeforeQuit = await btcToken.balanceOf(owner);
 
       // Calculate expected amount to receive (position value after slashing + rewards)
-      const earnedRewards = await insurancePool.earnedPosition.staticCall(owner, 0);
+      const earnedRewards = await insurancePool.earnedPosition.staticCall(ownerPositionId);
       const expectedTotalAmount = expectedPositionValueAfterSlash + earnedRewards;
 
       await time.increase(additionalTimeNeeded);
-      await insurancePool.quitPoolPosition(0);
+      await insurancePool.quitPoolPosition(ownerPositionId);
 
       // Get owner's balance after quitting the pool
       const balanceAfterQuit = await btcToken.balanceOf(owner);
       const actualReceivedAmount = balanceAfterQuit - balanceBeforeQuit;
 
-      const finalPosition = await insurancePool.getPoolPosition(owner, 0);
+      const finalPosition = await insurancePool.getPoolPosition(ownerPositionId);
       expect(finalPosition.active).to.be.false;
 
       // Check that the user received the expected amount
@@ -173,7 +179,7 @@ describe("Insurance", async function () {
       // Expected calculations
       const expectedRewardAmount = (purchaseAmount * rewardPercentage) / 100n;
 
-      const { btcToken, sursToken, insurancePool, claimer } = await loadFixture(
+      const { btcToken, sursToken, insurancePool, claimer, positionNFT } = await loadFixture(
         basicFixture
       );
       const [owner, poolUnderwriter] =
@@ -213,8 +219,8 @@ describe("Insurance", async function () {
       // Execute the approved claim
       await claimer.executeClaim(0);
 
-      const underwriterPosition = await insurancePool.getPoolPosition(poolUnderwriter, 0);
-      const earnedAmount = await insurancePool.earnedPosition.staticCall(poolUnderwriter, 0);
+      const underwriterPositionId = await positionNFT.tokenOfOwnerByIndex(poolUnderwriter.address, 0);
+      const earnedAmount = await insurancePool.earnedPosition.staticCall(underwriterPositionId);
 
       // Should receive full rewards since underwriter is the only staker
       expect(earnedAmount).to.approximately(
@@ -240,7 +246,7 @@ describe("Insurance", async function () {
       const expectedBigStakerRewards = ethers.parseUnits("0.74999999964285721", "ether");
       const expectedSmallStakerRewards = ethers.parseUnits("0.000000000357142856", "ether");
 
-      const { btcToken, insurancePool } = await loadFixture(basicFixture);
+      const { btcToken, insurancePool, positionNFT } = await loadFixture(basicFixture);
       const [owner, poolUnderwriter] =
         await ethers.getSigners();
 
@@ -253,13 +259,14 @@ describe("Insurance", async function () {
         .joinPool(underwriterStakeAmount, episodeToStake3);
       await insurancePool.joinPool(ownerStakeAmount, episodeToStake3);
 
-      const position_big = await insurancePool.getPoolPosition(
-        poolUnderwriter,
-        0
-      );
-      const position_small = await insurancePool.getPoolPosition(owner, 0);
-      expect(position_big[1]).to.equal(underwriterStakeAmount.toString());
-      expect(position_small[1]).to.equal(ownerStakeAmount.toString());
+
+      const ownerPositionId = await positionNFT.tokenOfOwnerByIndex(owner.address, 0);
+      const underwriterPositionId = await positionNFT.tokenOfOwnerByIndex(poolUnderwriter.address, 0);
+
+      const position_big = await insurancePool.getPoolPosition(underwriterPositionId);
+      const position_small = await insurancePool.getPoolPosition(ownerPositionId);
+      expect(position_big.shares).to.equal(underwriterStakeAmount.toString());
+      expect(position_small.shares).to.equal(ownerStakeAmount.toString());
 
       // Check if rewards distributed honestly
       await purchaseCoverage({
@@ -271,9 +278,8 @@ describe("Insurance", async function () {
       });
 
       await time.increaseTo((await time.latest()) + SECS_IN_DAY * 600);
-      const positionBig = await insurancePool.getPoolPosition(poolUnderwriter, 0);
-      const earnedAmountBig = await insurancePool.earnedPosition.staticCall(poolUnderwriter, 0);
-      const earnedAmountSmall = await insurancePool.earnedPosition.staticCall(owner, 0);
+      const earnedAmountBig = await insurancePool.earnedPosition.staticCall(underwriterPositionId);
+      const earnedAmountSmall = await insurancePool.earnedPosition.staticCall(ownerPositionId);
 
       expect(earnedAmountBig).to.approximately(
         expectedBigStakerRewards,
@@ -303,7 +309,7 @@ describe("Insurance", async function () {
       const bigStakerProportion = underwriterStakeAmount / initialTotalAssets;
       const smallStakerProportion = ownerStakeAmount / initialTotalAssets;
 
-      const { btcToken, insurancePool, claimer } = await loadFixture(basicFixture);
+      const { btcToken, insurancePool, claimer, positionNFT } = await loadFixture(basicFixture);
       const [owner, poolUnderwriter] =
         await ethers.getSigners();
 
@@ -318,11 +324,11 @@ describe("Insurance", async function () {
       await insurancePool.joinPool(ownerStakeAmount, episodeToStake4);
 
       // Verify initial positions and shares
-      const position_big = await insurancePool.getPoolPosition(
-        poolUnderwriter,
-        0
-      );
-      const position_small = await insurancePool.getPoolPosition(owner, 0);
+      const underwriterPositionId = await positionNFT.tokenOfOwnerByIndex(poolUnderwriter.address, 0);
+      const ownerPositionId = await positionNFT.tokenOfOwnerByIndex(owner.address, 0);
+
+      const position_big = await insurancePool.getPoolPosition(underwriterPositionId);
+      const position_small = await insurancePool.getPoolPosition(ownerPositionId);
       expect(position_big.shares).to.equal(underwriterStakeAmount);
       expect(position_small.shares).to.equal(ownerStakeAmount);
 
@@ -358,8 +364,8 @@ describe("Insurance", async function () {
       await time.increaseTo((await time.latest()) + SECS_IN_DAY * 700);
 
       // Check earned rewards
-      const earnedAmountBig = await insurancePool.earnedPosition.staticCall(poolUnderwriter, 0);
-      const earnedAmountSmall = await insurancePool.earnedPosition.staticCall(owner, 0);
+      const earnedAmountBig = await insurancePool.earnedPosition.staticCall(underwriterPositionId);
+      const earnedAmountSmall = await insurancePool.earnedPosition.staticCall(ownerPositionId);
 
       // Verify proportions are maintained despite slashing
       // The exact amounts will be different due to slashing, but proportions should remain similar
@@ -377,8 +383,8 @@ describe("Insurance", async function () {
         ALLOWED_UNDERSTAKING
       );
 
-      await insurancePool.quitPoolPosition(0);
-      await insurancePool.connect(poolUnderwriter).quitPoolPosition(0);
+      await insurancePool.quitPoolPosition(ownerPositionId);
+      await insurancePool.connect(poolUnderwriter).quitPoolPosition(underwriterPositionId);
     });
 
     it("test minimum stake amount edge cases", async function () {
@@ -386,7 +392,7 @@ describe("Insurance", async function () {
       const underwriterStakeAmount = ethers.parseUnits("100", "ether");
       const episodeOffset = 23;
 
-      const { btcToken, insurancePool } = await loadFixture(basicFixture);
+      const { btcToken, insurancePool, positionNFT } = await loadFixture(basicFixture);
       const [owner, poolUnderwriter] = await ethers.getSigners();
 
       // Calculate valid episode for staking
@@ -410,7 +416,8 @@ describe("Insurance", async function () {
         .not.be.reverted;
 
       // Verify position was created correctly
-      const position = await insurancePool.getPoolPosition(owner, 0);
+      const ownerPositionId = await positionNFT.tokenOfOwnerByIndex(owner.address, 0);
+      const position = await insurancePool.getPoolPosition(ownerPositionId);
       expect(position.shares).to.equal(minimumStakeAmount);
       expect(position.active).to.be.true;
     });
