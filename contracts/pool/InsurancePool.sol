@@ -130,7 +130,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     bool public isNewDepositsAccepted;
     uint public underwriterTotalShares;
     uint public underwriterFee;
-    
+
 
     uint public minimumStakeAmount;
 
@@ -173,7 +173,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         poolUnderwriter = poolUnderwritter;
         claimer = claimer_;
         poolAsset = IERC20(poolAsset_);
-        
+
         totalAssetsStaked = 0;
         totalPoolShares = 0;
         isNewDepositsAccepted = isNewDepositsAccepted_;
@@ -185,7 +185,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         bonusPerEpisodeStaked = bonusPerEpisodeStaked_;
         underwriterFee = underwriterFee_;
 
-        
+
     }
 
     function updateClaimer(address newClaimer) onlyOwner external {
@@ -209,7 +209,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         protocolFee = factory.protocolFee();
         guardian = factory.guardian();
         require(protocolFee <= MAX_PROTOCOL_FEE, "Protocol fee too high.");
-        
+
         emit GlobalSettingsUpdated(
             capitalPool,
             protocolFee
@@ -270,12 +270,10 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
 
     function earnedPosition(uint positionId) public returns (uint) {
-        // TODO: FIX BUG HERE
         _updateEpisodesState();
         PoolStake storage position = positions[positionId];
         uint reward = 0;
         reward = (position.rewardShares * (accRewardRatePerShare - position.rewardPerShare)) / 1e18;
-        position.rewardPerShare = accRewardRatePerShare;
         return reward;
     }
 
@@ -292,8 +290,11 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     }
 
     function collectRewards(uint[] memory positionsIds) external {
-        _updateEpisodesState();
         uint reward = earnedPositions(positionsIds);
+        for(uint i = 0; i < positionsIds.length; i++) {
+            require(positionNFT.ownerOf(positionsIds[i]) == msg.sender, "Only position owner can collect rewards.");
+            positions[positionsIds[i]].rewardPerShare = accRewardRatePerShare;
+        }
         if (reward > 0) {
             poolAsset.transfer(msg.sender, reward);
         }
@@ -389,15 +390,16 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         PoolStake storage position = positions[positionId];
         require(msg.sender == poolUnderwriter || position.shares - sharesToWithdraw <= maxSharesUserToStake(), "Underwriter position can't be less than allowed.");
         require(position.episode < currentEpisode || sharesToWithdraw == 0, "It is possible to withdraw on extend only for the expired positions.");
-        
+
         uint fromEpisode = position.episode; // Capture original episode for event
         uint withdrawAmount = 0;
         if(position.episode < currentEpisode) {
             // Calculate reward and also update the position reward per share
             withdrawAmount += earnedPosition(positionId);
+            positions[positionId].rewardPerShare = accRewardRatePerShare;
         }
 
-        
+
         // Clean previus episode
         Episode storage previuslyDepositedEpisode = episodes[position.episode];
         uint movedShares = position.shares - sharesToWithdraw;
@@ -461,6 +463,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
 
         uint rewards = earnedPosition(positionId);
+        positions[positionId].rewardPerShare = accRewardRatePerShare;
         // First calculate withdraw based on shares in the episode
         Episode storage ep = episodes[position.episode];
         uint withdrawAmount = (position.shares * ep.assetsStaked)/ ep.episodeShares;
@@ -496,6 +499,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         address receiver,
         uint amount
     ) external whenNotPaused returns (bool completed) {
+        // TODO: Add product based claim fee
         require(msg.sender == claimer, "Caller is not the claimer");
         _updateEpisodesState();
         uint currentEpisode = getCurrentEpisode();
@@ -627,6 +631,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         uint64 maxPoolAllocationPercent,
         bool active
     ) external {
+        // TODO: make multipal products update for txs optimization.
         require(msg.sender == poolUnderwriter, "Access check fail.");
         require(maxCoverageDuration < (MAX_ACTIVE_EPISODES -1) * EPISODE_DURATION, "Max coverage duration is too long.");
         require(maxPoolAllocationPercent <= BASIS_POINTS, "Max pool allocation is too high.");
