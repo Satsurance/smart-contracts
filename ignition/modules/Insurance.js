@@ -1,20 +1,21 @@
 const { buildModule } = require("@nomicfoundation/hardhat-ignition/modules");
 const { ethers } = require("ethers");
 
-const INITIAL_SUPPLY = ethers.parseUnits("20000000000", "ether").toString();
-const WBTC_INITIAL_SUPPLY = ethers.parseUnits("22000000", "ether").toString();
-const MIN_TIMELOCK_DELAY = 24 * 60 * 60;
-const PROPOSER_ROLE_ID = ethers.solidityPackedKeccak256(
-  ["string"],
-  ["PROPOSER_ROLE"]
-);
-
 const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
-  const initialSupply = m.getParameter("initialSupply", INITIAL_SUPPLY);
-  const wbtcInitialSupply = m.getParameter(
-    "wbtcInitialSupply",
-    WBTC_INITIAL_SUPPLY
-  );
+  // Token supply parameters
+  const initialSupply = m.getParameter("initialSupply", ethers.parseUnits("20000000000", "ether").toString());
+  const wbtcInitialSupply = m.getParameter("wbtcInitialSupply", ethers.parseUnits("22000000", "ether").toString());
+
+  // Timelock parameters
+  const minTimelockDelay = m.getParameter("minTimelockDelay", 24 * 60 * 60); // 1 day
+  const proposerRoleId = m.getParameter("proposerRoleId", ethers.solidityPackedKeccak256(["string"], ["PROPOSER_ROLE"]));
+
+  // Fee parameters
+  const protocolFee = m.getParameter("protocolFee", 1500); // 15%
+  const underwriterFee = m.getParameter("underwriterFee", 1000); // 10%
+  const minimalUnderwriterStake = m.getParameter("minimalUnderwriterStake", 1000);
+
+  // Staking parameters
   const bonusPerEpisodeStaked = m.getParameter("bonusPerEpisodeStaked", 0);
 
   // Claimer parameters
@@ -23,6 +24,14 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   const claimerOperator = m.getParameter("claimerOperator", m.getAccount(0));
   const claimDeposit = m.getParameter("claimDeposit", 0);
   const approvalPeriod = m.getParameter("approvalPeriod", 3 * 7 * 24 * 60 * 60); // 3 weeks
+
+  // Account parameters
+  const poolUnderwriter = m.getParameter("poolUnderwriter", m.getAccount(1));
+  const capitalPool = m.getParameter("capitalPool", m.getAccount(2));
+  const owner = m.getParameter("owner", m.getAccount(0));
+  const manager = m.getParameter("manager", m.getAccount(0));
+  const operator = m.getParameter("operator", m.getAccount(0));
+  const guardian = m.getParameter("guardian", m.getAccount(0));
 
   // Mock Btc token
   let btcToken = m.contract("BTCToken", [wbtcInitialSupply]);
@@ -39,12 +48,12 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   );
 
   let timelock = m.contract("Timelock", [
-    MIN_TIMELOCK_DELAY,
+    minTimelockDelay,
     [],
     ["0x0000000000000000000000000000000000000000"],
   ]);
   let governor_c = m.contract("SatsuranceGovernor", [sursTokenProxy, timelock]);
-  m.call(timelock, "grantRole", [PROPOSER_ROLE_ID, governor_c]);
+  m.call(timelock, "grantRole", [proposerRoleId, governor_c]);
 
   // Deploy InsurancePool implementation
   let insurancePoolLogic = m.contract("InsurancePool", [], {
@@ -69,8 +78,8 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     [
       coverNFTLogic,
       m.encodeFunctionCall(coverNFTLogic, "initialize", [
-        m.getAccount(0), // owner (deployer for now)
-        m.getAccount(0), // manager (deployer for now)
+        owner, // owner (deployer for now)
+        manager, // manager (deployer for now)
         uriDescriptor, // uriDescriptor address
       ]),
     ],
@@ -87,14 +96,14 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     [
       poolFactoryLogic,
       m.encodeFunctionCall(poolFactoryLogic, "initialize", [
-        m.getAccount(0), // owner (deployer)
-        m.getAccount(0), // operator (deployer for now)
-        m.getAccount(2), // capitalPool (unused account for now)
+        owner, // owner (deployer)
+        operator, // operator (deployer for now)
+        capitalPool, // capitalPool
         insurancePoolBeacon, // beacon address
         coverNFT, // coverNFT address
         "0x0000000000000000000000000000000000000000", // positionNFT placeholder
-        m.getAccount(0), // guardian (same as owner for now)
-        1500, // 15% protocol fee
+        guardian, // guardian (same as owner for now)
+        protocolFee, // protocol fee
       ]),
     ],
     { id: "PoolFactoryProxy" }
@@ -113,8 +122,8 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
       positionNFTLogic,
       m.encodeFunctionCall(positionNFTLogic, "initialize", [
         poolFactory, // poolFactory address
-        m.getAccount(0), // owner (deployer for now)
-        m.getAccount(0), // manager (deployer for now)
+        owner, // owner (deployer for now)
+        manager, // manager (deployer for now)
         uriDescriptor, // uriDescriptor address
       ]),
     ],
@@ -130,16 +139,16 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   const DEFAULT_ADMIN_ROLE = m.staticCall(coverNFT, "DEFAULT_ADMIN_ROLE", []);
   const cc1 = m.call(coverNFT, "grantRole", [MANAGER_ROLE, poolFactory], { id: "coverNFT1" });
   const cc2 = m.call(coverNFT, "grantRole", [DEFAULT_ADMIN_ROLE, timelock], { id: "coverNFT2" });
-  const cc3 = m.call(coverNFT, "revokeRole", [MANAGER_ROLE, m.getAccount(0)], { id: "coverNFT3" });
-  const lastCoverNFTRoleTx = m.call(coverNFT, "revokeRole", [DEFAULT_ADMIN_ROLE, m.getAccount(0)], { id: "coverNFT4", after: [cc1, cc2, cc3] });
+  const cc3 = m.call(coverNFT, "revokeRole", [MANAGER_ROLE, owner], { id: "coverNFT3" });
+  const lastCoverNFTRoleTx = m.call(coverNFT, "revokeRole", [DEFAULT_ADMIN_ROLE, owner], { id: "coverNFT4", after: [cc1, cc2, cc3] });
 
   // Grant PoolFactory MANAGER_ROLE on PositionNFT to manage pool permissions
   const POSITION_MANAGER_ROLE = m.staticCall(positionNFT, "MANAGER_ROLE", []);
   const POSITION_DEFAULT_ADMIN_ROLE = m.staticCall(positionNFT, "DEFAULT_ADMIN_ROLE", []);
   const pc1 = m.call(positionNFT, "grantRole", [POSITION_MANAGER_ROLE, poolFactory], { id: "positionNFT1", after: [setPositionNFTCall] });
   const pc2 = m.call(positionNFT, "grantRole", [POSITION_DEFAULT_ADMIN_ROLE, timelock], { id: "positionNFT2", after: [setPositionNFTCall] });
-  const pc3 = m.call(positionNFT, "revokeRole", [POSITION_MANAGER_ROLE, m.getAccount(0)], { id: "positionNFT3" });
-  const lastPositionNFTRoleTx = m.call(positionNFT, "revokeRole", [POSITION_DEFAULT_ADMIN_ROLE, m.getAccount(0)], { id: "positionNFT4", after: [pc1, pc2, pc3] });
+  const pc3 = m.call(positionNFT, "revokeRole", [POSITION_MANAGER_ROLE, owner], { id: "positionNFT3" });
+  const lastPositionNFTRoleTx = m.call(positionNFT, "revokeRole", [POSITION_DEFAULT_ADMIN_ROLE, owner], { id: "positionNFT4", after: [pc1, pc2, pc3] });
 
   // Deploy upgradable Claimer
   let claimerLogic = m.contract("Claimer", [], {
@@ -163,14 +172,14 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
 
   // Prepare initialization data for InsurancePool
   const initData = m.encodeFunctionCall(insurancePoolLogic, "initialize", [
-    m.getAccount(1), // poolUnderwriter
+    poolUnderwriter, // poolUnderwriter
     timelock, // governor (owner)
     btcToken,
     claimerProxy, // claimer address
-    1000, // 10%
+    minimalUnderwriterStake, // minimal underwriter stake
     bonusPerEpisodeStaked, // Bonus per episode staked
     true,
-    1000, // 10% underwriter fee
+    underwriterFee, // underwriter fee
   ]);
 
   // Create InsurancePool through factory
