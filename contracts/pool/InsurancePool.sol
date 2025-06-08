@@ -77,6 +77,7 @@ struct Episode {
     uint rewardShares;
     uint assetsStaked;
     uint rewardDecrease;
+    uint coverageDecrease;
 }
 
 struct Product {
@@ -102,6 +103,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     IPositionNFT public positionNFT;
 
     address public capitalPool;
+    address public reinvestPool;
     address public claimer;
     address public guardian;
     IERC20 public poolAsset;
@@ -139,6 +141,8 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
     uint public updatedRewardsAt;
     uint public accRewardRatePerShare;
+
+    uint public totalCoverAllocation;
 
     /**
      * @dev Storage gap to allow for future upgrades
@@ -243,6 +247,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             totalRewardShares -= episodes[i].rewardShares;
             totalPoolShares -= episodes[i].episodeShares;
             totalAssetsStaked -= episodes[i].assetsStaked;
+            totalCoverAllocation -= episodes[i].coverageDecrease;
         }
         accRewardRatePerShare += rewardRatePerShare(updatedRewardsAt_, block.timestamp);
         updatedRewardsAt = block.timestamp;
@@ -451,7 +456,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         address toRemove = msg.sender;
         uint currentEpisode = getCurrentEpisode();
         PoolStake memory position = positions[positionId];
-        require(toRemove == positionNFT.ownerOf(positionId), "Only position owner can extend.");
+        require(toRemove == positionNFT.ownerOf(positionId), "Only position owner can remove.");
         require(position.active, "Position inactive.");
         require(position.episode < currentEpisode, "Funds are timelocked.");
         _updateEpisodesState();
@@ -568,6 +573,9 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         episodeAllocationCut[productId][lastCoveredEpisode] += coverageAmount;
         product.allocation += coverageAmount;
 
+        totalCoverAllocation += coverageAmount;
+        episodes[lastCoveredEpisode].coverageDecrease += coverageAmount;
+
         // Calculate premium
         uint premiumAmount = (coverageDuration * product.annualPercent * coverageAmount) / (365 days * BASIS_POINTS);
         uint protocolFeeAmount = premiumAmount * protocolFee / BASIS_POINTS;
@@ -631,7 +639,6 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         uint64 maxPoolAllocationPercent,
         bool active
     ) external {
-        // TODO: make multipal products update for txs optimization.
         require(msg.sender == poolUnderwriter, "Access check fail.");
         require(maxCoverageDuration < (MAX_ACTIVE_EPISODES -1) * EPISODE_DURATION, "Max coverage duration is too long.");
         require(maxPoolAllocationPercent <= BASIS_POINTS, "Max pool allocation is too high.");

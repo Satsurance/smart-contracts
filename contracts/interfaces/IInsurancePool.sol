@@ -70,6 +70,7 @@ interface IInsurancePool {
         uint rewardShares;
         uint assetsStaked;
         uint rewardDecrease;
+        uint coverageDecrease;
     }
 
     struct Product {
@@ -141,6 +142,8 @@ interface IInsurancePool {
 
     function accRewardRatePerShare() external view returns (uint);
 
+    function totalCoverAllocation() external view returns (uint);
+
     // Mappings
     function products(
         uint
@@ -182,7 +185,8 @@ interface IInsurancePool {
             uint episodeShares,
             uint rewardShares,
             uint assetsStaked,
-            uint rewardDecrease
+            uint rewardDecrease,
+            uint coverageDecrease
         );
 
     // Functions
