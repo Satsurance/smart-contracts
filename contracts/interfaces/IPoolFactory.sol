@@ -3,12 +3,24 @@ pragma solidity ^0.8.20;
 
 interface IPoolFactory {
     // Events
-    event PoolCreated(uint indexed poolId, address indexed poolAddress);
-    event OperatorChanged(
-        address indexed oldOperator,
-        address indexed newOperator
+    event BeaconUpdated(
+        address indexed previousBeacon,
+        address indexed newBeacon
     );
-    event BeaconChanged(address indexed oldBeacon, address indexed newBeacon);
+    event CapitalPoolUpdated(
+        address indexed previousCapitalPool,
+        address indexed newCapitalPool
+    );
+    event PositionNFTUpdated(
+        address indexed previousPositionNFT,
+        address indexed newPositionNFT
+    );
+    event GuardianUpdated(
+        address indexed previousGuardian,
+        address indexed newGuardian
+    );
+    event ProtocolFeeUpdated(uint256 previousFee, uint256 newFee);
+    event PoolCreated(uint256 indexed poolId, address indexed poolAddress);
 
     // View functions
     function beacon() external view returns (address);

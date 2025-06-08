@@ -7,107 +7,159 @@ import {AccessControlEnumerableUpgradeable} from "@openzeppelin/contracts-upgrad
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import "../interfaces/IPoolFactory.sol";
 
+/**
+ * @title PoolFactory
+ * @notice Factory contract for creating and managing insurance pool instances
+ * @dev Uses beacon proxy pattern for upgradeable pool implementations
+ */
 contract PoolFactory is
     IPoolFactory,
     Initializable,
     AccessControlEnumerableUpgradeable
 {
+    // Constants
     bytes32 public constant OWNER_ROLE = keccak256("OWNER_ROLE");
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    uint256 public constant MAX_PROTOCOL_FEE = 1500; // 15% max fee in basis points
 
+    // State variables
     address public beacon;
     address public capitalPool;
     address public coverNFT;
     address public positionNFT;
     address public guardian;
     uint256 public protocolFee;
-    uint96 internal _poolCount;
-    mapping(uint => address) public pools;
+    uint256 public poolCount;
+    mapping(uint256 => address) public pools;
+
+    modifier notZeroAddress(address addr) {
+        require(addr != address(0), "Zero address not allowed");
+        _;
+    }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
+    /**
+     * @notice Initializes the factory contract
+     * @param owner_ Address to grant DEFAULT_ADMIN_ROLE
+     * @param operator_ Address to grant OPERATOR_ROLE
+     * @param capitalPool_ Address of the capital pool
+     * @param beacon_ Address of the beacon for pool proxies
+     * @param coverNFT_ Address of the cover NFT contract
+     * @param positionNFT_ Address of the position NFT contract
+     * @param guardian_ Address of the guardian
+     * @param protocolFee_ Initial protocol fee in basis points
+     */
     function initialize(
-        address _owner,
-        address _operator,
-        address _capitalPool,
-        address _beacon,
-        address _coverNFT,
-        address _positionNFT,
-        address _guardian,
-        uint256 _protocolFee
+        address owner_,
+        address operator_,
+        address capitalPool_,
+        address beacon_,
+        address coverNFT_,
+        address positionNFT_,
+        address guardian_,
+        uint256 protocolFee_
     ) public initializer {
         __AccessControlEnumerable_init();
 
-        _grantRole(DEFAULT_ADMIN_ROLE, _owner);
-        _grantRole(OPERATOR_ROLE, _operator);
+        _grantRole(DEFAULT_ADMIN_ROLE, owner_);
+        _grantRole(OPERATOR_ROLE, operator_);
         _setRoleAdmin(OPERATOR_ROLE, OPERATOR_ROLE);
 
-        coverNFT = _coverNFT;
-        positionNFT = _positionNFT;
-        setBeacon(_beacon);
-        setCapitalPool(_capitalPool);
-        setGuardian(_guardian);
-        setProtocolFee(_protocolFee);
+        coverNFT = coverNFT_;
+        positionNFT = positionNFT_;
+        setBeacon(beacon_);
+        setCapitalPool(capitalPool_);
+        setGuardian(guardian_);
+        setProtocolFee(protocolFee_);
     }
 
+    /**
+     * @notice Updates the capital pool address
+     * @param newCapitalPool_ New capital pool address
+     */
     function setCapitalPool(
-        address newCapitalPool
-    ) public onlyRole(OPERATOR_ROLE) {
-        require(
-            newCapitalPool != address(0),
-            "PoolFactory: Invalid capital pool"
-        );
-        capitalPool = newCapitalPool;
+        address newCapitalPool_
+    ) public onlyRole(OPERATOR_ROLE) notZeroAddress(newCapitalPool_) {
+        address previousCapitalPool = capitalPool;
+        capitalPool = newCapitalPool_;
+        emit CapitalPoolUpdated(previousCapitalPool, newCapitalPool_);
     }
 
+    /**
+     * @notice Updates the position NFT contract address
+     * @param newPositionNFT_ New position NFT address
+     */
     function setPositionNFT(
-        address newPositionNFT
+        address newPositionNFT_
+    ) public onlyRole(OPERATOR_ROLE) notZeroAddress(newPositionNFT_) {
+        address previousPositionNFT = positionNFT;
+        positionNFT = newPositionNFT_;
+        emit PositionNFTUpdated(previousPositionNFT, newPositionNFT_);
+    }
+
+    /**
+     * @notice Updates the guardian address
+     * @param newGuardian_ New guardian address
+     */
+    function setGuardian(
+        address newGuardian_
+    ) public onlyRole(OPERATOR_ROLE) notZeroAddress(newGuardian_) {
+        address previousGuardian = guardian;
+        guardian = newGuardian_;
+        emit GuardianUpdated(previousGuardian, newGuardian_);
+    }
+
+    /**
+     * @notice Updates the protocol fee
+     * @param newProtocolFee_ New protocol fee in basis points
+     */
+    function setProtocolFee(
+        uint256 newProtocolFee_
     ) public onlyRole(OPERATOR_ROLE) {
         require(
-            newPositionNFT != address(0),
-            "PoolFactory: Invalid position NFT"
+            newProtocolFee_ <= MAX_PROTOCOL_FEE,
+            "Protocol fee exceeds maximum"
         );
-        positionNFT = newPositionNFT;
+        uint256 previousFee = protocolFee;
+        protocolFee = newProtocolFee_;
+        emit ProtocolFeeUpdated(previousFee, newProtocolFee_);
     }
 
-    function setGuardian(address newGuardian) public onlyRole(OPERATOR_ROLE) {
-        require(newGuardian != address(0), "PoolFactory: Invalid guardian");
-        guardian = newGuardian;
+    /**
+     * @notice Updates the beacon address for pool proxies
+     * @param newBeacon_ New beacon address
+     */
+    function setBeacon(
+        address newBeacon_
+    ) public onlyRole(DEFAULT_ADMIN_ROLE) notZeroAddress(newBeacon_) {
+        address previousBeacon = beacon;
+        beacon = newBeacon_;
+        emit BeaconUpdated(previousBeacon, newBeacon_);
     }
 
-    function setProtocolFee(
-        uint256 newProtocolFee
-    ) public onlyRole(OPERATOR_ROLE) {
-        protocolFee = newProtocolFee;
-    }
-
-    function setBeacon(address newBeacon) public onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(newBeacon != address(0), "PoolFactory: Invalid beacon");
-
-        address oldBeacon = beacon;
-        beacon = newBeacon;
-
-        emit BeaconChanged(oldBeacon, newBeacon);
-    }
-
-    function poolCount() external view returns (uint) {
-        return _poolCount;
-    }
-
+    /**
+     * @notice Creates a new insurance pool
+     * @param poolInitData_ Initialization data for the pool
+     * @return poolId The ID of the created pool
+     * @return poolAddress The address of the created pool
+     */
     function create(
-        bytes calldata initData
-    ) external returns (uint poolId, address poolAddress) {
-        require(beacon != address(0), "PoolFactory: Beacon not set");
+        bytes calldata poolInitData_
+    ) external returns (uint256 poolId, address poolAddress) {
+        require(beacon != address(0), "Beacon not set");
 
-        poolId = ++_poolCount;
+        poolId = ++poolCount;
         poolAddress = address(
-            new BeaconProxy{salt: bytes32(poolId)}(beacon, initData)
+            new BeaconProxy{salt: bytes32(poolId)}(beacon, poolInitData_)
         );
         pools[poolId] = poolAddress;
+
+        // Grant minter roles to the new pool
         IAccessControl(coverNFT).grantRole(MINTER_ROLE, poolAddress);
         IAccessControl(positionNFT).grantRole(MINTER_ROLE, poolAddress);
 

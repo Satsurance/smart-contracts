@@ -409,7 +409,7 @@ describe("Insurance", async function () {
       // Test amount 1 wei below minimum - should fail
       await expect(
         insurancePool.joinPool(minimumStakeAmount - 1n, episodeToStake5)
-      ).to.be.revertedWith("Too small staking amount.");
+      ).to.be.revertedWith("Too small staking amount");
 
       // Test exactly minimum amount - should succeed
       await expect(insurancePool.joinPool(minimumStakeAmount, episodeToStake5)).to
