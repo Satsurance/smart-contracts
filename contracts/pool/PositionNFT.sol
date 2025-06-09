@@ -13,6 +13,11 @@ import "../interfaces/IPositionUriDescriptor.sol";
 import "../interfaces/IPoolFactory.sol";
 import "../interfaces/IInsurancePool.sol";
 
+/**
+ * @title PositionNFT
+ * @notice NFT contract for representing insurance pool positions
+ * @dev Implements ERC721 with enumerable extension and access control
+ */
 contract PositionNFT is
     Initializable,
     ContextUpgradeable,
@@ -22,15 +27,30 @@ contract PositionNFT is
 {
     using Strings for uint256;
 
+    // Custom errors for gas efficiency
+    error InvalidAddress();
+    error UnauthorizedTransfer();
+    error InvalidPoolId();
+    error PositionDoesNotExist();
+
+    // Role definitions
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
+    // State variables
     mapping(uint => uint) public positionPool;
     uint256 public positionIdCounter;
-
     IPoolFactory public poolFactory;
-
     IPositionUriDescriptor public uriDescriptor;
+
+    // Events
+    event PositionMinted(
+        uint256 indexed positionId,
+        address indexed recipient,
+        uint64 indexed poolId
+    );
+
+    event PositionBurned(uint256 indexed positionId, uint64 indexed poolId);
 
     event UriDescriptorUpdated(
         address indexed oldDescriptor,
@@ -42,95 +62,133 @@ contract PositionNFT is
         _disableInitializers();
     }
 
+    /**
+     * @notice Initializes the contract
+     * @param poolFactory_ Address of the pool factory contract
+     * @param owner_ Address of the contract owner
+     * @param manager_ Address of the contract manager
+     * @param uriDescriptor_ Address of the URI descriptor contract
+     */
     function initialize(
-        address _poolFactory,
-        address owner,
-        address manager,
-        address _uriDescriptor
+        address poolFactory_,
+        address owner_,
+        address manager_,
+        address uriDescriptor_
     ) public initializer {
+        if (
+            poolFactory_ == address(0) ||
+            owner_ == address(0) ||
+            manager_ == address(0) ||
+            uriDescriptor_ == address(0)
+        ) {
+            revert InvalidAddress();
+        }
+
         __Context_init();
         __UUPSUpgradeable_init();
         __AccessControl_init();
-        __ERC721_init("Position NFT", "POSITIONNFT");
+        __ERC721_init("Insurance Position NFT", "iPOSITION");
         __ERC721Enumerable_init();
 
         // Setup roles
-        _grantRole(DEFAULT_ADMIN_ROLE, owner);
-        _grantRole(MANAGER_ROLE, manager);
+        _grantRole(DEFAULT_ADMIN_ROLE, owner_);
+        _grantRole(MANAGER_ROLE, manager_);
         _setRoleAdmin(MINTER_ROLE, MANAGER_ROLE);
         _setRoleAdmin(MANAGER_ROLE, DEFAULT_ADMIN_ROLE);
 
         positionIdCounter = 1;
-        poolFactory = IPoolFactory(_poolFactory);
+        poolFactory = IPoolFactory(poolFactory_);
+        uriDescriptor = IPositionUriDescriptor(uriDescriptor_);
 
-        uriDescriptor = IPositionUriDescriptor(_uriDescriptor);
-        emit UriDescriptorUpdated(address(0), _uriDescriptor);
+        emit UriDescriptorUpdated(address(0), uriDescriptor_);
     }
 
     /**
-     * @dev Mint a position NFT - can only be called by authorized minters (insurance pools)
-     * @param to The address to mint the NFT to
-     * @param poolId The pool ID that issued this position
+     * @notice Mints a new position NFT
+     * @dev Can only be called by authorized minters (insurance pools)
+     * @param to_ Address to mint the NFT to
+     * @param poolId_ ID of the pool that issued this position
+     * @return positionId The ID of the newly minted position
      */
     function mintPositionNFT(
-        address to,
-        uint64 poolId
-    ) external onlyRole(MINTER_ROLE) returns (uint) {
+        address to_,
+        uint64 poolId_
+    ) external onlyRole(MINTER_ROLE) returns (uint256) {
+        if (to_ == address(0)) revert InvalidAddress();
+        if (poolId_ == 0) revert InvalidPoolId();
+
         uint256 positionId = positionIdCounter;
         positionIdCounter++;
 
-        positionPool[positionId] = poolId;
+        positionPool[positionId] = poolId_;
 
-        _mint(to, positionId);
+        _mint(to_, positionId);
+
+        emit PositionMinted(positionId, to_, poolId_);
 
         return positionId;
     }
 
     /**
-     * @dev Burn a position NFT - can only be called by the NFT holder
-     * @param positionId The ID of the position NFT to burn
-     * @return True if successful
+     * @notice Burns a position NFT
+     * @dev Can only be called by authorized minters (insurance pools)
+     * @param positionId_ ID of the position NFT to burn
+     * @return success True if successful
      */
     function burnPositionNFT(
-        uint256 positionId
+        uint256 positionId_
     ) external onlyRole(MINTER_ROLE) returns (bool) {
-        delete positionPool[positionId];
-        _burn(positionId);
+        uint64 poolId = uint64(positionPool[positionId_]);
+        delete positionPool[positionId_];
+        _burn(positionId_);
+
+        emit PositionBurned(positionId_, poolId);
+
         return true;
     }
 
     /**
-     * @dev Returns the Uniform Resource Identifier (URI) for `tokenId` token.
-     * @param tokenId The ID of the token to get the URI for
-     * @return The URI for the given token ID
+     * @notice Returns the metadata URI for a token
+     * @param tokenId_ ID of the token to get the URI for
+     * @return uri The metadata URI for the given token ID
      */
     function tokenURI(
-        uint256 tokenId
+        uint256 tokenId_
     ) public view virtual override returns (string memory) {
-        uint poolId = positionPool[tokenId];
-
-        return uriDescriptor.tokenURI(tokenId, poolId);
+        uint256 poolId = positionPool[tokenId_];
+        return uriDescriptor.tokenURI(tokenId_, poolId);
     }
 
     /**
-     * @dev Sets the URI descriptor contract
-     * @param _uriDescriptor The address of the new URI descriptor contract
+     * @notice Updates the URI descriptor contract
+     * @param uriDescriptor_ Address of the new URI descriptor contract
      */
     function setUriDescriptor(
-        address _uriDescriptor
+        address uriDescriptor_
     ) external onlyRole(MANAGER_ROLE) {
+        if (uriDescriptor_ == address(0)) revert InvalidAddress();
+
         address oldDescriptor = address(uriDescriptor);
-        uriDescriptor = IPositionUriDescriptor(_uriDescriptor);
-        emit UriDescriptorUpdated(oldDescriptor, _uriDescriptor);
+        uriDescriptor = IPositionUriDescriptor(uriDescriptor_);
+
+        emit UriDescriptorUpdated(oldDescriptor, uriDescriptor_);
     }
 
+    /**
+     * @notice Authorizes contract upgrades
+     * @param newImplementation_ Address of the new implementation
+     */
     function _authorizeUpgrade(
-        address newImplementation
+        address newImplementation_
     ) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
-    /// @dev Returns true if this contract implements the interface defined by `interfaceId`.
+    /**
+     * @notice Checks if contract supports an interface
+     * @param interfaceId_ The interface identifier to check
+     * @return supported True if the interface is supported
+     */
     function supportsInterface(
-        bytes4 interfaceId
+        bytes4 interfaceId_
     )
         public
         view
@@ -139,50 +197,78 @@ contract PositionNFT is
         returns (bool)
     {
         return
-            ERC721EnumerableUpgradeable.supportsInterface(interfaceId) ||
-            AccessControlUpgradeable.supportsInterface(interfaceId);
+            ERC721EnumerableUpgradeable.supportsInterface(interfaceId_) ||
+            AccessControlUpgradeable.supportsInterface(interfaceId_);
     }
 
+    /**
+     * @notice Gets the pool underwriter for a position
+     * @param positionId_ ID of the position
+     * @return underwriter Address of the pool underwriter
+     */
     function _getPoolUnderwriter(
-        uint256 positionId
+        uint256 positionId_
     ) internal view returns (address) {
         return
-            IInsurancePool(poolFactory.pools(positionPool[positionId]))
+            IInsurancePool(poolFactory.pools(positionPool[positionId_]))
                 .poolUnderwriter();
     }
 
     /**
-     * @dev Override transferFrom to prevent transfers to and from pool underwriter
-     * Allows normal transfers between other addresses
+     * @notice Validates transfer restrictions
+     * @param from_ Source address
+     * @param to_ Destination address
+     * @param tokenId_ Token being transferred
      */
-    function transferFrom(
-        address from,
-        address to,
-        uint256 tokenId
-    ) public virtual override(ERC721Upgradeable, IERC721) {
-        address underwriter = _getPoolUnderwriter(tokenId);
-        require(
-            from != underwriter && to != underwriter,
-            "PositionNFT: Can't transfer to and from pool underwriter."
-        );
-        super.transferFrom(from, to, tokenId);
+    modifier validateTransfer(
+        address from_,
+        address to_,
+        uint256 tokenId_
+    ) {
+        address underwriter = _getPoolUnderwriter(tokenId_);
+        if (from_ == underwriter || to_ == underwriter) {
+            revert UnauthorizedTransfer();
+        }
+        _;
     }
 
     /**
-     * @dev Override safeTransferFrom to prevent transfers to and from pool underwriter
-     * Allows normal transfers between other addresses
+     * @notice Transfers a position NFT with underwriter restrictions
+     * @param from_ Source address
+     * @param to_ Destination address
+     * @param tokenId_ ID of the token to transfer
+     */
+    function transferFrom(
+        address from_,
+        address to_,
+        uint256 tokenId_
+    )
+        public
+        virtual
+        override(ERC721Upgradeable, IERC721)
+        validateTransfer(from_, to_, tokenId_)
+    {
+        super.transferFrom(from_, to_, tokenId_);
+    }
+
+    /**
+     * @notice Safely transfers a position NFT with underwriter restrictions
+     * @param from_ Source address
+     * @param to_ Destination address
+     * @param tokenId_ ID of the token to transfer
+     * @param data_ Additional data with no specified format
      */
     function safeTransferFrom(
-        address from,
-        address to,
-        uint256 tokenId,
-        bytes memory data
-    ) public virtual override(ERC721Upgradeable, IERC721) {
-        address underwriter = _getPoolUnderwriter(tokenId);
-        require(
-            from != underwriter && to != underwriter,
-            "PositionNFT: Can't transfer to and from pool underwriter."
-        );
-        super.safeTransferFrom(from, to, tokenId, data);
+        address from_,
+        address to_,
+        uint256 tokenId_,
+        bytes memory data_
+    )
+        public
+        virtual
+        override(ERC721Upgradeable, IERC721)
+        validateTransfer(from_, to_, tokenId_)
+    {
+        super.safeTransferFrom(from_, to_, tokenId_, data_);
     }
 }
