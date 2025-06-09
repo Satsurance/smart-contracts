@@ -377,4 +377,64 @@ describe("InsurancePool", async function () {
     expect(position.shares).to.equal(minimumStakeAmount);
     expect(position.active).to.be.true;
   });
+
+  it("test position stops earning rewards after episode expires", async function () {
+    const stakeAmount = ethers.parseUnits("1", "ether"); // 1 BTC for both positions
+    const coveragePurchaseAmount = ethers.parseUnits("1", "ether");
+    const coverageAmountMultiplier = 10n;
+    const shortEpisodeOffset = 2n; // Short episode (will expire sooner)
+    const longEpisodeOffset = 23n; // Long episode (will continue)
+
+    const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
+    const { owner, poolUnderwriter } = accounts;
+
+    const currentEpisode = BigInt(await getCurrentEpisode());
+    const shortEpisodeToStake = currentEpisode + shortEpisodeOffset;
+    const longEpisodeToStake = currentEpisode + longEpisodeOffset;
+
+    // Create long-term position (poolUnderwriter)
+    await insurancePool
+      .connect(poolUnderwriter)
+      .joinPool(stakeAmount, longEpisodeToStake);
+
+    // Create short-term position (owner)
+    await insurancePool.joinPool(stakeAmount, shortEpisodeToStake);
+
+
+    const ownerPositionId = await positionNFT.tokenOfOwnerByIndex(owner.address, 0);
+    const underwriterPositionId = await positionNFT.tokenOfOwnerByIndex(poolUnderwriter.address, 0);
+
+    // Verify both positions are active and have equal stakes
+    const shortPosition = await insurancePool.getPoolPosition(ownerPositionId);
+    const longPosition = await insurancePool.getPoolPosition(underwriterPositionId);
+    expect(shortPosition.shares).to.equal(stakeAmount);
+    expect(longPosition.shares).to.equal(stakeAmount);
+    expect(shortPosition.active).to.be.true;
+    expect(longPosition.active).to.be.true;
+
+    // Purchase coverage to generate rewards (single purchase)
+    await purchaseCoverage({
+      insurancePool,
+      poolAsset: btcToken,
+      buyer: owner,
+      coveredAccount: owner.address,
+      coverageAmount: coveragePurchaseAmount * coverageAmountMultiplier,
+    });
+
+    // Calculate when the long episode expires (both positions will have expired by then)
+    const episodeDuration = await insurancePool.EPISODE_DURATION();
+    const longEpisodeExpiry = longEpisodeToStake * episodeDuration;
+
+    // Advance time to just after the long episode expires
+    await time.increaseTo(longEpisodeExpiry + 1n);
+
+    // Check final rewards after both episodes have expired
+    const finalRewards_short = await insurancePool.earnedPosition.staticCall(ownerPositionId);
+    const finalRewards_long = await insurancePool.earnedPosition.staticCall(underwriterPositionId);
+
+    // The long position should have earned more rewards since it was active longer
+    // The short position stopped earning after its episode expired
+    // The long position continued earning until its episode expired
+    expect(finalRewards_long).to.be.greaterThan(finalRewards_short);
+  });
 });

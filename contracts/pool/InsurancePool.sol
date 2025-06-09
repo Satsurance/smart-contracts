@@ -78,6 +78,7 @@ struct Episode {
     uint assetsStaked;
     uint rewardDecrease;
     uint coverageDecrease;
+    uint accRewardPerShareOnExpire;
 }
 
 struct Product {
@@ -245,6 +246,9 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             updatedRewardsAt_ = prevEpisodeFinishTime;
             poolRewardRate -= episodes[i + 1].rewardDecrease;
 
+            // Set for the expiring episode
+            episodes[i].accRewardPerShareOnExpire = accumulatedRewardRatePerShare;
+
             // Remove expired episodes from total pool count
             totalRewardShares -= episodes[i].rewardShares;
             totalPoolShares -= episodes[i].episodeShares;
@@ -279,7 +283,8 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         _updateEpisodesState();
         PoolStake storage position = positions[positionId_];
         uint reward = 0;
-        reward = (position.rewardShares * (accumulatedRewardRatePerShare - position.rewardPerShare)) / 1e18;
+        uint rewardPerShare = position.episode < getCurrentEpisode() ?  episodes[position.episode].accRewardPerShareOnExpire : accumulatedRewardRatePerShare;
+        reward = (position.rewardShares * (rewardPerShare - position.rewardPerShare)) / 1e18;
         return reward;
     }
 
