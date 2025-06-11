@@ -27,7 +27,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
 
   // Account parameters
   const poolUnderwriter = m.getParameter("poolUnderwriter", m.getAccount(1));
-  const capitalPool = m.getParameter("capitalPool", m.getAccount(2));
+  const protocolRewardsAddress = m.getParameter("protocolRewardsAddress", m.getAccount(2));
   const owner = m.getParameter("owner", m.getAccount(0));
   const manager = m.getParameter("manager", m.getAccount(0));
   const operator = m.getParameter("operator", m.getAccount(0));
@@ -69,6 +69,22 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   // Deploy UriDescriptor
   let uriDescriptor = m.contract("UriDescriptor", []);
 
+  // Deploy upgradable CapitalPool first (before PoolFactory)
+  let capitalPoolLogic = m.contract("CapitalPool", [], {
+    id: "capitalPoolLogic",
+  });
+  let capitalPoolProxy = m.contract(
+    "ERC1967Proxy",
+    [
+      capitalPoolLogic,
+      m.encodeFunctionCall(capitalPoolLogic, "initialize", [
+        "0x0000000000000000000000000000000000000000", // poolFactory placeholder
+      ]),
+    ],
+    { id: "CapitalPoolProxy" }
+  );
+  const capitalPool = m.contractAt("CapitalPool", capitalPoolProxy);
+
   // Deploy upgradable CoverNFT
   let coverNFTLogic = m.contract("CoverNFT", [], {
     id: "coverNFTLogic",
@@ -98,7 +114,8 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
       m.encodeFunctionCall(poolFactoryLogic, "initialize", [
         owner, // owner (deployer)
         operator, // operator (deployer for now)
-        capitalPool, // capitalPool
+        protocolRewardsAddress, // protocolRewardsAddress
+        capitalPool, // capitalPool address
         insurancePoolBeacon, // beacon address
         coverNFT, // coverNFT address
         "0x0000000000000000000000000000000000000000", // positionNFT placeholder
@@ -109,6 +126,9 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     { id: "PoolFactoryProxy" }
   );
   const poolFactory = m.contractAt("PoolFactory", poolFactoryProxy);
+
+  // Update CapitalPool with the actual PoolFactory address
+  const setPoolFactoryCall = m.call(capitalPool, "setPoolFactory", [poolFactory]);
 
   // Deploy upgradable PositionNFT
   let positionNFTLogic = m.contract("PositionNFT", [], {
@@ -210,6 +230,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     timelock,
     claimer,
     poolFactory,
+    capitalPool,
     insurancePoolBeacon,
     coverNFT,
     positionNFT,

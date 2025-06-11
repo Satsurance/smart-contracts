@@ -5,15 +5,16 @@ interface IInvestAdapter {
     /**
      * @dev Invests the specified amount
      * @param amount The amount to invest
-     * @return The value returned from the investment
+     * @return The adapter asset got
      */
     function invest(uint256 amount) external returns (uint256);
 
     /**
      * @dev Collects the specified amount from investments
      * @param amount The amount to collect
+     * @return The adapters asset spent
      */
-    function collect(uint256 amount) external;
+    function collect(uint256 amount) external returns (uint256);
 
     /**
      * @dev Returns the current value of invested tokens
