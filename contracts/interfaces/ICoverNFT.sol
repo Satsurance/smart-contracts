@@ -2,7 +2,6 @@
 pragma solidity ^0.8.20;
 
 struct Cover {
-    address coveredAccount;
     uint coveredAmount;
     uint64 productId;
     uint64 startDate;
@@ -13,8 +12,7 @@ struct Cover {
 interface ICoverNFT {
     /**
      * @dev Mint a cover NFT
-     * @param to The address to mint the NFT to
-     * @param coveredAccount The account that is covered
+     * @param to The address to mint the NFT to and the account that is covered
      * @param coveredAmount The amount covered
      * @param productId The product ID
      * @param startDate The start date of coverage
@@ -23,7 +21,6 @@ interface ICoverNFT {
      */
     function mintCoverNFT(
         address to,
-        address coveredAccount,
         uint256 coveredAmount,
         uint64 productId,
         uint64 startDate,

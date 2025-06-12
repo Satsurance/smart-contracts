@@ -67,7 +67,8 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   ]);
 
   // Deploy UriDescriptor
-  let uriDescriptor = m.contract("UriDescriptor", []);
+  let coverDescriptor = m.contract("CoverDescriptor", []);
+  let positionDescriptor = m.contract("PositionDescriptor", []);
 
   // Deploy upgradable CapitalPool first (before PoolFactory)
   let capitalPoolLogic = m.contract("CapitalPool", [], {
@@ -78,7 +79,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     [
       capitalPoolLogic,
       m.encodeFunctionCall(capitalPoolLogic, "initialize", [
-        "0x0000000000000000000000000000000000000000", // poolFactory placeholder
+        "0x0000000000000000000000000000000000000000" // poolFactory placeholder
       ]),
     ],
     { id: "CapitalPoolProxy" }
@@ -96,7 +97,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
       m.encodeFunctionCall(coverNFTLogic, "initialize", [
         owner, // owner (deployer for now)
         manager, // manager (deployer for now)
-        uriDescriptor, // uriDescriptor address
+        coverDescriptor, // uriDescriptor address
       ]),
     ],
     { id: "CoverNFTProxy" }
@@ -144,7 +145,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
         poolFactory, // poolFactory address
         owner, // owner (deployer for now)
         manager, // manager (deployer for now)
-        uriDescriptor, // uriDescriptor address
+        positionDescriptor, // uriDescriptor address
       ]),
     ],
     { id: "PositionNFTProxy" }
@@ -234,7 +235,8 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     insurancePoolBeacon,
     coverNFT,
     positionNFT,
-    uriDescriptor,
+    coverDescriptor,
+    positionDescriptor,
   };
 });
 

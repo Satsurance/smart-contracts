@@ -9,7 +9,7 @@ import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol"
 import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/utils/Base64.sol";
-import "../interfaces/IPositionUriDescriptor.sol";
+import "../interfaces/IUriDescriptor.sol";
 import "../interfaces/IPoolFactory.sol";
 import "../interfaces/IInsurancePool.sol";
 
@@ -41,7 +41,7 @@ contract PositionNFT is
     mapping(uint => uint) public positionPool;
     uint256 public positionIdCounter;
     IPoolFactory public poolFactory;
-    IPositionUriDescriptor public uriDescriptor;
+    IUriDescriptor public uriDescriptor;
 
     // Events
     event PositionMinted(
@@ -98,7 +98,7 @@ contract PositionNFT is
 
         positionIdCounter = 1;
         poolFactory = IPoolFactory(poolFactory_);
-        uriDescriptor = IPositionUriDescriptor(uriDescriptor_);
+        uriDescriptor = IUriDescriptor(uriDescriptor_);
 
         emit UriDescriptorUpdated(address(0), uriDescriptor_);
     }
@@ -156,7 +156,8 @@ contract PositionNFT is
         uint256 tokenId_
     ) public view virtual override returns (string memory) {
         uint256 poolId = positionPool[tokenId_];
-        return uriDescriptor.tokenURI(tokenId_, poolId);
+        bytes memory metadata = abi.encode(poolId);
+        return uriDescriptor.tokenURI(tokenId_, metadata);
     }
 
     /**
@@ -169,7 +170,7 @@ contract PositionNFT is
         if (uriDescriptor_ == address(0)) revert InvalidAddress();
 
         address oldDescriptor = address(uriDescriptor);
-        uriDescriptor = IPositionUriDescriptor(uriDescriptor_);
+        uriDescriptor = IUriDescriptor(uriDescriptor_);
 
         emit UriDescriptorUpdated(oldDescriptor, uriDescriptor_);
     }

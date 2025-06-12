@@ -6,6 +6,6 @@ import "./ICoverNFT.sol";
 interface IUriDescriptor {
     function tokenURI(
         uint256 tokenId,
-        Cover calldata cover
+        bytes calldata metadata
     ) external view returns (string memory);
 }

@@ -37,7 +37,6 @@ contract CoverNFT is
         uint256 indexed coverId,
         address indexed to,
         address indexed pool,
-        address coveredAccount,
         uint256 coveredAmount,
         uint64 productId,
         uint64 startDate,
@@ -83,7 +82,6 @@ contract CoverNFT is
     /**
      * @dev Mint a cover NFT - can only be called by authorized minters (insurance pools)
      * @param to The address to mint the NFT to
-     * @param coveredAccount The account that is covered
      * @param coveredAmount The amount covered
      * @param productId The product ID
      * @param startDate The start date of coverage
@@ -92,7 +90,6 @@ contract CoverNFT is
      */
     function mintCoverNFT(
         address to,
-        address coveredAccount,
         uint256 coveredAmount,
         uint64 productId,
         uint64 startDate,
@@ -103,7 +100,6 @@ contract CoverNFT is
         coverIdCounter++;
 
         covers[coverId] = Cover({
-            coveredAccount: coveredAccount,
             coveredAmount: coveredAmount,
             productId: productId,
             startDate: startDate,
@@ -117,7 +113,6 @@ contract CoverNFT is
             coverId,
             to,
             _msgSender(),
-            coveredAccount,
             coveredAmount,
             productId,
             startDate,
@@ -166,7 +161,8 @@ contract CoverNFT is
         uint256 tokenId
     ) public view virtual override returns (string memory) {
         Cover memory cover = covers[tokenId];
-        return uriDescriptor.tokenURI(tokenId, cover);
+        bytes memory metadata = abi.encode(cover);
+        return uriDescriptor.tokenURI(tokenId, metadata);
     }
 
     /**
