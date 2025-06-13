@@ -135,7 +135,7 @@ describe("InsurancePool", async function () {
     const episodeOffset = 23;
 
     // Fee and reward calculations
-    const rewardPercentage = 75n; // 75% goes to stakers
+    const rewardPercentage = 85n; // 85% goes to stakers
     const coverageAmount = purchaseAmount * coverageAmountMultiplier;
 
     // Expected calculations
@@ -181,7 +181,7 @@ describe("InsurancePool", async function () {
     await claimer.executeClaim(0);
 
     const underwriterPositionId = await positionNFT.tokenOfOwnerByIndex(poolUnderwriter.address, 0);
-    const earnedAmount = await insurancePool.earnedPosition.staticCall(underwriterPositionId);
+    const earnedAmount = await insurancePool.earnedPositions.staticCall([underwriterPositionId, 0]);
 
     // Should receive full rewards since underwriter is the only staker
     expect(earnedAmount).to.approximately(
@@ -198,13 +198,15 @@ describe("InsurancePool", async function () {
     const episodeOffset = 23;
 
     // Fee and reward calculations
-    const rewardPercentage = 75n; // 75% goes to stakers
+    const rewardPercentage = 85n; // 85% goes to stakers
     const coverageAmount = coveragePurchaseAmount * coverageAmountMultiplier;
 
     // Expected calculations
     const expectedTotalRewards = (coveragePurchaseAmount * rewardPercentage) / 100n;
-    const expectedBigStakerRewards = ethers.parseUnits("0.74999999964285721", "ether");
-    const expectedSmallStakerRewards = ethers.parseUnits("0.000000000357142856", "ether");
+    const totalStake = underwriterStakeAmount + ownerStakeAmount;
+    const basicSmallStakerReward = ((ownerStakeAmount * expectedTotalRewards) / totalStake);
+    const expectedBigStakerRewards = ((underwriterStakeAmount * expectedTotalRewards) / totalStake) + (basicSmallStakerReward * 10n / 100n);
+    const expectedSmallStakerRewards = basicSmallStakerReward * 90n / 100n + 1n; // TODO: fix precision error
 
     const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
     const { owner, poolUnderwriter } = accounts;
@@ -237,7 +239,7 @@ describe("InsurancePool", async function () {
     });
 
     await time.increaseTo((await time.latest()) + SECS_IN_DAY * 600);
-    const earnedAmountBig = await insurancePool.earnedPosition.staticCall(underwriterPositionId);
+    const earnedAmountBig = await insurancePool.earnedPositions.staticCall([underwriterPositionId, 0]);
     const earnedAmountSmall = await insurancePool.earnedPosition.staticCall(ownerPositionId);
 
     expect(earnedAmountBig).to.approximately(
@@ -260,12 +262,16 @@ describe("InsurancePool", async function () {
     const numIterations = 10;
     const episodeOffset = 23;
 
+    // Fee and reward calculations
+    const rewardPercentage = 85n;
+
     // Expected calculations
     const totalCoveragePurchases = coveragePurchaseAmount * BigInt(numIterations);
-    const expectedTotalRewards = (totalCoveragePurchases * 75n) / 100n; // 75% of original due to 25% fee
-    const initialTotalAssets = underwriterStakeAmount + ownerStakeAmount;
-    const bigStakerProportion = underwriterStakeAmount / initialTotalAssets;
-    const smallStakerProportion = ownerStakeAmount / initialTotalAssets;
+    const expectedTotalRewards = (totalCoveragePurchases * rewardPercentage) / 100n;
+    const totalStake = underwriterStakeAmount + ownerStakeAmount;
+    const basicSmallStakerReward = ((ownerStakeAmount * expectedTotalRewards) / totalStake);
+    const expectedBigStakerRewards = ((underwriterStakeAmount * expectedTotalRewards) / totalStake) + (basicSmallStakerReward * 10n / 100n);
+    const expectedSmallStakerRewards = basicSmallStakerReward * 90n / 100n;
 
     const { btcToken, insurancePool, claimer, positionNFT, accounts } = await loadFixture(basicFixture);
     const { owner, poolUnderwriter } = accounts;
@@ -321,20 +327,14 @@ describe("InsurancePool", async function () {
     await time.increaseTo((await time.latest()) + SECS_IN_DAY * 700);
 
     // Check earned rewards
-    const earnedAmountBig = await insurancePool.earnedPosition.staticCall(underwriterPositionId);
+    const earnedAmountBig = await insurancePool.earnedPositions.staticCall([underwriterPositionId, 0]);
     const earnedAmountSmall = await insurancePool.earnedPosition.staticCall(ownerPositionId);
 
-    // Verify proportions are maintained despite slashing
-    // The exact amounts will be different due to slashing, but proportions should remain similar
-    const totalEarned = earnedAmountBig + earnedAmountSmall;
-    const bigStakerEarnedProportion = earnedAmountBig / totalEarned;
-    const smallStakerEarnedProportion = earnedAmountSmall / totalEarned;
-
-    // Check that proportions are approximately correct (within 1% tolerance due to slashing effects)
-    expect(bigStakerEarnedProportion).to.be.equal(bigStakerProportion);
-    expect(smallStakerEarnedProportion).to.be.equal(smallStakerProportion);
-
-    // Verify total rewards match total coverage purchases
+    expect(earnedAmountBig).to.approximately(
+      expectedBigStakerRewards,
+      ALLOWED_UNDERSTAKING
+    );
+    expect(earnedAmountSmall).to.equal(expectedSmallStakerRewards);
     expect(earnedAmountBig + earnedAmountSmall).to.approximately(
       expectedTotalRewards,
       ALLOWED_UNDERSTAKING

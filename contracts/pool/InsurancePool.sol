@@ -71,6 +71,7 @@ struct PoolStake {
     uint shares;
     uint rewardShares;
     uint rewardPerShare;
+    uint rewardsCollected;
     bool active;
 }
 
@@ -239,10 +240,8 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         if(block.timestamp == updatedRewardsAt) {
             return;
         }
-        totalAssetsStaked = capitalPool.getPoolValue(poolId);
         uint currentEpisode = getCurrentEpisode();
         uint lastUpdatedEpisode = updatedRewardsAt / EPISODE_DURATION;
-
         uint updatedRewardsAt_ = updatedRewardsAt;
         // Episodes will have additional capital pool rewads, but it is fair
         for (uint i = lastUpdatedEpisode; i < currentEpisode; i++) {
@@ -263,10 +262,14 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             
 
             // Remove expired episode from total pool count
-            totalRewardShares -= episodes[i].rewardShares;
             totalPoolShares -= episodes[i].episodeShares;
             totalAssetsStaked -= episodes[i].assetsStaked;
             totalCoverAllocation -= episodes[i].coverageDecrease;
+            totalRewardShares -= episodes[i].rewardShares;
+            // Collect underwriter fee
+            positions[0].rewardsCollected += _earnedPosition(0);
+            positions[0].rewardShares -= episodes[i].rewardShares * underwriterFee / BASIS_POINTS;
+            positions[0].rewardPerShare = accumulatedRewardRatePerShare;
         }
         accumulatedRewardRatePerShare += rewardRatePerShare(updatedRewardsAt_, block.timestamp);
         updatedRewardsAt = block.timestamp;
@@ -294,6 +297,12 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
     function earnedPosition(uint positionId_) public returns (uint) {
         _updateEpisodesState();
+        uint newRewards = _earnedPosition(positionId_);
+        positions[positionId_].rewardsCollected += newRewards;
+        return positions[positionId_].rewardsCollected;
+    }
+
+    function _earnedPosition(uint positionId_) internal view returns (uint) {
         PoolStake storage position = positions[positionId_];
         uint reward = 0;
         uint rewardPerShare = position.episode < getCurrentEpisode() ?  episodes[position.episode].accRewardPerShareOnExpire : accumulatedRewardRatePerShare;
@@ -314,7 +323,8 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     function collectRewards(uint[] memory positionsIds_) external {
         uint reward = earnedPositions(positionsIds_);
         for(uint i = 0; i < positionsIds_.length; i++) {
-            require(positionNFT.ownerOf(positionsIds_[i]) == msg.sender, "Only position owner can collect rewards");
+            require((positionsIds_[i] == 0 && msg.sender == poolUnderwriter) || 
+            (positionNFT.ownerOf(positionsIds_[i]) == msg.sender), "Only position owner can collect rewards");
             positions[positionsIds_[i]].rewardPerShare = accumulatedRewardRatePerShare;
         }
         if (reward > 0) {
@@ -333,11 +343,17 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
     // Underwriter's part of the stake can't be less than 10%
     function maxSharesUserToStake() public view returns(uint) {
+        if(minUnderwriterPercentage == 0) {
+            return type(uint).max;
+        }
         return (positions[underwriterPositionId].shares * BASIS_POINTS)/minUnderwriterPercentage - totalPoolShares;
     }
 
     // Underwriter's part of the stake can't be less than 10%
     function maxUnderwriterSharesToUnstake() public view returns(uint) {
+        if(minUnderwriterPercentage == 0) {
+            return type(uint).max;
+        }
         return positions[underwriterPositionId].shares - (totalPoolShares * minUnderwriterPercentage)/BASIS_POINTS;
     }
 
@@ -348,6 +364,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         require(amount_ >= minimumStakeAmount, "Too small staking amount");
         require(msg.sender == poolUnderwriter || isNewDepositAccepted, "New deposits are not allowed");
         require(msg.sender != poolUnderwriter || underwriterPositionId == 0, "Underwriter can't have multiple positions");
+        require(msg.sender == poolUnderwriter || underwriterPositionId != 0, "There is should be at least one underwriter position");
 
         uint currentEpisode = getCurrentEpisode();
         require(episodeToStake_ < currentEpisode + MAX_ACTIVE_EPISODES, "Too long staking time");
@@ -360,6 +377,24 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         uint newShares = totalPoolShares == 0 ? amount_ : (amount_ * totalPoolShares) / totalAssetsStaked;
         uint newRewardShares = newShares + newShares * (episodeToStake_ - currentEpisode - 2) * bonusPerEpisodeStaked / BASIS_POINTS;
         require(msg.sender == poolUnderwriter || newShares <= maxSharesUserToStake(), "Underwriter position can't be less than allowed");
+        if(msg.sender == poolUnderwriter) {
+            underwriterPositionId = newPositionId;
+            positions[0].episode = type(uint).max;
+        }
+
+        {
+            uint underwriterRewardShares = (newRewardShares * underwriterFee) / (BASIS_POINTS - underwriterFee);
+            positions[newPositionId] = PoolStake({
+                episode: episodeToStake_,
+                shares: newShares,
+                rewardShares: newRewardShares,
+                rewardPerShare: accumulatedRewardRatePerShare,
+                rewardsCollected: 0,
+                active: true
+            });
+            positions[0].rewardShares += underwriterRewardShares;
+            newRewardShares += underwriterRewardShares;
+        }
 
         Episode storage targetEpisode = episodes[episodeToStake_];
         targetEpisode.assetsStaked += amount_;
@@ -367,17 +402,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         targetEpisode.rewardShares += newRewardShares;
 
         // Save position
-        positions[newPositionId] = PoolStake({
-            episode: episodeToStake_,
-            shares: newShares,
-            rewardShares: newRewardShares,
-            rewardPerShare: accumulatedRewardRatePerShare,
-            active: true
-        });
-
-        if(msg.sender == poolUnderwriter) {
-            underwriterPositionId = newPositionId;
-        }
+        
         totalPoolShares += newShares;
         totalAssetsStaked += amount_;
         totalRewardShares += newRewardShares;
@@ -544,7 +569,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         // TODO: Add product based claim fee
         require(msg.sender == claimer, "Caller is not the claimer");
         _updateEpisodesState();
-        uint currentEpisode = getCurrentEpisode();
+        uint currentEpisode = getCurrentEpisode();  
 
         for(uint i = currentEpisode; i < currentEpisode + MAX_ACTIVE_EPISODES; i++) {
             Episode storage episode = episodes[i];
@@ -619,11 +644,9 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         // Calculate premium
         uint premiumAmount = (coverageDuration_ * product.annualPercent * coverageAmount_) / (365 days * BASIS_POINTS);
         uint protocolFeeAmount = premiumAmount * protocolFee / BASIS_POINTS;
-        uint underwriterFeeAmount = premiumAmount * underwriterFee / BASIS_POINTS;
-        uint rewardAmount = premiumAmount - protocolFeeAmount - underwriterFeeAmount;
+        uint rewardAmount = premiumAmount - protocolFeeAmount;
         poolAsset.transferFrom(msg.sender, address(capitalPool), rewardAmount);
         poolAsset.transferFrom(msg.sender, protocolRewardsAddress, protocolFeeAmount);
-        poolAsset.transferFrom(msg.sender, poolUnderwriter, underwriterFeeAmount);
         capitalPool.deposit(poolId, rewardAmount, ICapitalPool.DepositType.Reward);
 
         _rewardPool(rewardAmount);
