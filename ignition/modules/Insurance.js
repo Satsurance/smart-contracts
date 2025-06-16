@@ -14,6 +14,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   const protocolFee = m.getParameter("protocolFee", 1500); // 15%
   const underwriterFee = m.getParameter("underwriterFee", 1000); // 10%
   const minimalUnderwriterStake = m.getParameter("minimalUnderwriterStake", 1000);
+  const underwriterFirstLoss = m.getParameter("underwriterFirstLoss", 0); // Default to 0
 
   // Staking parameters
   const bonusPerEpisodeStaked = m.getParameter("bonusPerEpisodeStaked", 0);
@@ -201,6 +202,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     bonusPerEpisodeStaked, // Bonus per episode staked
     true,
     underwriterFee, // underwriter fee
+    underwriterFirstLoss, // underwriter first loss
   ]);
 
   // Create InsurancePool through factory

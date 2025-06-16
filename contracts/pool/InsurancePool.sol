@@ -137,6 +137,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     uint public underwriterPositionId;
     uint public underwriterFee;
     bool public isNewDepositAccepted;
+    uint public underwriterFirstLoss;
 
     uint public minimumStakeAmount;
 
@@ -176,7 +177,8 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         uint minUnderwriterPercentage_, // 1000 is 10%
         uint bonusPerEpisodeStaked_,
         bool isNewDepositAccepted_,
-        uint underwriterFee_
+        uint underwriterFee_,
+        uint underwriterFirstLoss_
     ) public initializer {
         require(underwriterFee_ <= MAX_UNDERWRITER_FEE, "Underwriter fee too high");
 
@@ -201,6 +203,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         minimumStakeAmount = MINIMUM_STAKE_AMOUNT_BTC;
         bonusPerEpisodeStaked = bonusPerEpisodeStaked_;
         underwriterFee = underwriterFee_;
+        underwriterFirstLoss = underwriterFirstLoss_;
     }
 
     function updateClaimer(address newClaimer_) onlyOwner external {
@@ -326,6 +329,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             require((positionsIds_[i] == 0 && msg.sender == poolUnderwriter) || 
             (positionNFT.ownerOf(positionsIds_[i]) == msg.sender), "Only position owner can collect rewards");
             positions[positionsIds_[i]].rewardPerShare = accumulatedRewardRatePerShare;
+            positions[positionsIds_[i]].rewardsCollected = 0;
         }
         if (reward > 0) {
             poolAsset.transfer(msg.sender, reward);
@@ -568,6 +572,8 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     ) external whenNotPaused returns (bool completed) {
         // TODO: Add product based claim fee
         require(msg.sender == claimer, "Caller is not the claimer");
+
+        
         _updateEpisodesState();
         uint currentEpisode = getCurrentEpisode();  
 

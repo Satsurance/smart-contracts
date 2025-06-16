@@ -22,8 +22,7 @@ describe("InsurancePool", async function () {
     const additionalEpisodeDurationMultiplier = 24n;
 
     // Fee and reward calculations
-    const feePercentage = 25n; // 25% fee
-    const rewardPercentage = 75n; // 75% goes to stakers
+    const rewardPercentage = 85n;
     const coverageAmount = minimumRewardAmount * coverageAmountMultiplier;
 
     // Expected calculations
