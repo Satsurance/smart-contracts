@@ -3,29 +3,31 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/utils/Base64.sol";
+import "../interfaces/IUriDescriptor.sol";
 
-struct Cover {
-    address coveredAccount;
-    uint coveredAmount;
-    uint64 productId;
-    uint64 startDate;
-    uint64 endDate;
-    uint64 poolId;
+struct PositionMetadata {
+    uint256 poolId;
 }
 
-contract UriDescriptor {
+contract PositionDescriptor is IUriDescriptor {
     using Strings for uint256;
 
     /**
-     * @dev Generates the token URI for a cover NFT
-     * @param tokenId The ID of the token
-     * @param cover The cover data struct
+     * @dev Generates the token URI for a position NFT
+     * @param tokenId The ID of the position token
+     * @param metadata The encoded position data as bytes
      * @return The complete token URI as a base64-encoded JSON
      */
     function tokenURI(
         uint256 tokenId,
-        Cover calldata cover
+        bytes calldata metadata
     ) external pure returns (string memory) {
+        // Decode the metadata bytes into a PositionMetadata struct
+        PositionMetadata memory position = abi.decode(
+            metadata,
+            (PositionMetadata)
+        );
+
         return
             string(
                 abi.encodePacked(
@@ -33,11 +35,11 @@ contract UriDescriptor {
                     Base64.encode(
                         abi.encodePacked(
                             "{",
-                            '"name": "Insurance Cover #',
+                            '"name": "Insurance Position #',
                             tokenId.toString(),
                             '",',
-                            '"description": "Insurance cover NFT from Pool #',
-                            uint256(cover.poolId).toString(),
+                            '"description": "Insurance position NFT from Pool #',
+                            position.poolId.toString(),
                             '"}'
                         )
                     )

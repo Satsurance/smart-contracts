@@ -14,6 +14,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   const protocolFee = m.getParameter("protocolFee", 1500); // 15%
   const underwriterFee = m.getParameter("underwriterFee", 1000); // 10%
   const minimalUnderwriterStake = m.getParameter("minimalUnderwriterStake", 1000);
+  const underwriterFirstLoss = m.getParameter("underwriterFirstLoss", 0); // Default to 0
 
   // Staking parameters
   const bonusPerEpisodeStaked = m.getParameter("bonusPerEpisodeStaked", 0);
@@ -27,7 +28,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
 
   // Account parameters
   const poolUnderwriter = m.getParameter("poolUnderwriter", m.getAccount(1));
-  const capitalPool = m.getParameter("capitalPool", m.getAccount(2));
+  const protocolRewardsAddress = m.getParameter("protocolRewardsAddress", m.getAccount(2));
   const owner = m.getParameter("owner", m.getAccount(0));
   const manager = m.getParameter("manager", m.getAccount(0));
   const operator = m.getParameter("operator", m.getAccount(0));
@@ -67,7 +68,24 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   ]);
 
   // Deploy UriDescriptor
-  let uriDescriptor = m.contract("UriDescriptor", []);
+  let coverDescriptor = m.contract("CoverDescriptor", []);
+  let positionDescriptor = m.contract("PositionDescriptor", []);
+
+  // Deploy upgradable CapitalPool first (before PoolFactory)
+  let capitalPoolLogic = m.contract("CapitalPool", [], {
+    id: "capitalPoolLogic",
+  });
+  let capitalPoolProxy = m.contract(
+    "ERC1967Proxy",
+    [
+      capitalPoolLogic,
+      m.encodeFunctionCall(capitalPoolLogic, "initialize", [
+        "0x0000000000000000000000000000000000000000" // poolFactory placeholder
+      ]),
+    ],
+    { id: "CapitalPoolProxy" }
+  );
+  const capitalPool = m.contractAt("CapitalPool", capitalPoolProxy);
 
   // Deploy upgradable CoverNFT
   let coverNFTLogic = m.contract("CoverNFT", [], {
@@ -80,7 +98,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
       m.encodeFunctionCall(coverNFTLogic, "initialize", [
         owner, // owner (deployer for now)
         manager, // manager (deployer for now)
-        uriDescriptor, // uriDescriptor address
+        coverDescriptor, // uriDescriptor address
       ]),
     ],
     { id: "CoverNFTProxy" }
@@ -98,7 +116,8 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
       m.encodeFunctionCall(poolFactoryLogic, "initialize", [
         owner, // owner (deployer)
         operator, // operator (deployer for now)
-        capitalPool, // capitalPool
+        protocolRewardsAddress, // protocolRewardsAddress
+        capitalPool, // capitalPool address
         insurancePoolBeacon, // beacon address
         coverNFT, // coverNFT address
         "0x0000000000000000000000000000000000000000", // positionNFT placeholder
@@ -109,6 +128,9 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     { id: "PoolFactoryProxy" }
   );
   const poolFactory = m.contractAt("PoolFactory", poolFactoryProxy);
+
+  // Update CapitalPool with the actual PoolFactory address
+  const setPoolFactoryCall = m.call(capitalPool, "setPoolFactory", [poolFactory]);
 
   // Deploy upgradable PositionNFT
   let positionNFTLogic = m.contract("PositionNFT", [], {
@@ -124,7 +146,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
         poolFactory, // poolFactory address
         owner, // owner (deployer for now)
         manager, // manager (deployer for now)
-        uriDescriptor, // uriDescriptor address
+        positionDescriptor, // uriDescriptor address
       ]),
     ],
     { id: "PositionNFTProxy" }
@@ -180,6 +202,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     bonusPerEpisodeStaked, // Bonus per episode staked
     true,
     underwriterFee, // underwriter fee
+    underwriterFirstLoss, // underwriter first loss
   ]);
 
   // Create InsurancePool through factory
@@ -210,10 +233,12 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     timelock,
     claimer,
     poolFactory,
+    capitalPool,
     insurancePoolBeacon,
     coverNFT,
     positionNFT,
-    uriDescriptor,
+    coverDescriptor,
+    positionDescriptor,
   };
 });
 

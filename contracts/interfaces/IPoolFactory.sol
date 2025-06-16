@@ -7,6 +7,10 @@ interface IPoolFactory {
         address indexed previousBeacon,
         address indexed newBeacon
     );
+    event ProtocolRewardsAddressUpdated(
+        address indexed previousProtocolRewardsAddress,
+        address indexed newProtocolRewardsAddress
+    );
     event CapitalPoolUpdated(
         address indexed previousCapitalPool,
         address indexed newCapitalPool
@@ -25,6 +29,8 @@ interface IPoolFactory {
     // View functions
     function beacon() external view returns (address);
 
+    function protocolRewardsAddress() external view returns (address);
+
     function capitalPool() external view returns (address);
 
     function guardian() external view returns (address);
@@ -40,6 +46,10 @@ interface IPoolFactory {
     function pools(uint poolId) external view returns (address);
 
     function setBeacon(address newBeacon) external;
+
+    function setProtocolRewardsAddress(
+        address newProtocolRewardsAddress
+    ) external;
 
     function setCapitalPool(address newCapitalPool) external;
 

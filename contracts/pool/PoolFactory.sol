@@ -25,6 +25,7 @@ contract PoolFactory is
 
     // State variables
     address public beacon;
+    address public protocolRewardsAddress;
     address public capitalPool;
     address public coverNFT;
     address public positionNFT;
@@ -47,6 +48,7 @@ contract PoolFactory is
      * @notice Initializes the factory contract
      * @param owner_ Address to grant DEFAULT_ADMIN_ROLE
      * @param operator_ Address to grant OPERATOR_ROLE
+     * @param protocolRewardsAddress_ Address of the protocol rewards
      * @param capitalPool_ Address of the capital pool
      * @param beacon_ Address of the beacon for pool proxies
      * @param coverNFT_ Address of the cover NFT contract
@@ -57,6 +59,7 @@ contract PoolFactory is
     function initialize(
         address owner_,
         address operator_,
+        address protocolRewardsAddress_,
         address capitalPool_,
         address beacon_,
         address coverNFT_,
@@ -73,9 +76,29 @@ contract PoolFactory is
         coverNFT = coverNFT_;
         positionNFT = positionNFT_;
         setBeacon(beacon_);
+        setProtocolRewardsAddress(protocolRewardsAddress_);
         setCapitalPool(capitalPool_);
         setGuardian(guardian_);
         setProtocolFee(protocolFee_);
+    }
+
+    /**
+     * @notice Updates the protocol rewards address
+     * @param newProtocolRewardsAddress_ New protocol rewards address
+     */
+    function setProtocolRewardsAddress(
+        address newProtocolRewardsAddress_
+    )
+        public
+        onlyRole(OPERATOR_ROLE)
+        notZeroAddress(newProtocolRewardsAddress_)
+    {
+        address previousProtocolRewardsAddress = protocolRewardsAddress;
+        protocolRewardsAddress = newProtocolRewardsAddress_;
+        emit ProtocolRewardsAddressUpdated(
+            previousProtocolRewardsAddress,
+            newProtocolRewardsAddress_
+        );
     }
 
     /**

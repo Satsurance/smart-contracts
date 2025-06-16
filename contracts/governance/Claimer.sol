@@ -5,7 +5,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "../interfaces/IPool.sol";
+import "../interfaces/IInsurancePool.sol";
 
 struct Claim {
     address proposer;
@@ -179,7 +179,10 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
 
         claim.executed = true;
 
-        IPool(claim.poolAddress).executeClaim(claim.receiver, claim.amount);
+        IInsurancePool(claim.poolAddress).executeClaim(
+            claim.receiver,
+            claim.amount
+        );
 
         emit ClaimExecuted(claimId);
     }

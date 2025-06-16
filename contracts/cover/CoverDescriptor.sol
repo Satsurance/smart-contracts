@@ -3,21 +3,25 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/utils/Base64.sol";
-import "../interfaces/IPositionUriDescriptor.sol";
+import "../interfaces/IUriDescriptor.sol";
+import "../interfaces/ICoverNFT.sol";
 
-contract PositionUriDescriptor is IPositionUriDescriptor {
+contract CoverDescriptor is IUriDescriptor {
     using Strings for uint256;
 
     /**
-     * @dev Generates the token URI for a position NFT
-     * @param positionId The ID of the position token
-     * @param poolId The pool ID that issued this position
+     * @dev Generates the token URI for a cover NFT
+     * @param tokenId The ID of the token
+     * @param metadata The encoded cover data as bytes
      * @return The complete token URI as a base64-encoded JSON
      */
     function tokenURI(
-        uint256 positionId,
-        uint256 poolId
+        uint256 tokenId,
+        bytes calldata metadata
     ) external pure returns (string memory) {
+        // Decode the metadata bytes into a Cover struct
+        Cover memory cover = abi.decode(metadata, (Cover));
+
         return
             string(
                 abi.encodePacked(
@@ -25,11 +29,11 @@ contract PositionUriDescriptor is IPositionUriDescriptor {
                     Base64.encode(
                         abi.encodePacked(
                             "{",
-                            '"name": "Insurance Position #',
-                            positionId.toString(),
+                            '"name": "Insurance Cover #',
+                            tokenId.toString(),
                             '",',
-                            '"description": "Insurance position NFT from Pool #',
-                            poolId.toString(),
+                            '"description": "Insurance cover NFT from Pool #',
+                            uint256(cover.poolId).toString(),
                             '"}'
                         )
                     )
