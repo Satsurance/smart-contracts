@@ -61,21 +61,17 @@ contract ProtocolSettings is
         setProtocolFee(protocolFee_);
     }
 
-    function setBeacon(address newBeacon)
-        public
-        onlyRole(DEFAULT_ADMIN_ROLE)
-        notZeroAddress(newBeacon)
-    {
+    function setBeacon(
+        address newBeacon
+    ) public onlyRole(DEFAULT_ADMIN_ROLE) notZeroAddress(newBeacon) {
         address previousBeacon = beacon;
         beacon = newBeacon;
         emit BeaconUpdated(previousBeacon, newBeacon);
     }
 
-    function setProtocolRewardsAddress(address newProtocolRewardsAddress)
-        public
-        onlyRole(OPERATOR_ROLE)
-        notZeroAddress(newProtocolRewardsAddress)
-    {
+    function setProtocolRewardsAddress(
+        address newProtocolRewardsAddress
+    ) public onlyRole(OPERATOR_ROLE) notZeroAddress(newProtocolRewardsAddress) {
         address previousProtocolRewardsAddress = protocolRewardsAddress;
         protocolRewardsAddress = newProtocolRewardsAddress;
         emit ProtocolRewardsAddressUpdated(
@@ -84,50 +80,41 @@ contract ProtocolSettings is
         );
     }
 
-    function setCapitalPool(address newCapitalPool)
-        public
-        onlyRole(OPERATOR_ROLE)
-        notZeroAddress(newCapitalPool)
-    {
+    function setCapitalPool(
+        address newCapitalPool
+    ) public onlyRole(DEFAULT_ADMIN_ROLE) notZeroAddress(newCapitalPool) {
         address previousCapitalPool = capitalPool;
         capitalPool = newCapitalPool;
         emit CapitalPoolUpdated(previousCapitalPool, newCapitalPool);
     }
 
-    function setCoverNFT(address newCoverNFT)
-        public
-        onlyRole(OPERATOR_ROLE)
-        notZeroAddress(newCoverNFT)
-    {
+    function setCoverNFT(
+        address newCoverNFT
+    ) public onlyRole(DEFAULT_ADMIN_ROLE) notZeroAddress(newCoverNFT) {
         address previousCoverNFT = coverNFT;
         coverNFT = newCoverNFT;
         emit CoverNFTUpdated(previousCoverNFT, newCoverNFT);
     }
 
-    function setPositionNFT(address newPositionNFT)
-        public
-        onlyRole(OPERATOR_ROLE)
-        notZeroAddress(newPositionNFT)
-    {
+    function setPositionNFT(
+        address newPositionNFT
+    ) public onlyRole(DEFAULT_ADMIN_ROLE) notZeroAddress(newPositionNFT) {
         address previousPositionNFT = positionNFT;
         positionNFT = newPositionNFT;
         emit PositionNFTUpdated(previousPositionNFT, newPositionNFT);
     }
 
-    function setGuardian(address newGuardian)
-        public
-        onlyRole(OPERATOR_ROLE)
-        notZeroAddress(newGuardian)
-    {
+    function setGuardian(
+        address newGuardian
+    ) public onlyRole(OPERATOR_ROLE) notZeroAddress(newGuardian) {
         address previousGuardian = guardian;
         guardian = newGuardian;
         emit GuardianUpdated(previousGuardian, newGuardian);
     }
 
-    function setProtocolFee(uint256 newProtocolFee)
-        public
-        onlyRole(OPERATOR_ROLE)
-    {
+    function setProtocolFee(
+        uint256 newProtocolFee
+    ) public onlyRole(OPERATOR_ROLE) {
         require(
             newProtocolFee <= MAX_PROTOCOL_FEE,
             "Protocol fee exceeds maximum"

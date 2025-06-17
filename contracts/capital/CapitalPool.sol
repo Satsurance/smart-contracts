@@ -8,7 +8,6 @@ import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "../interfaces/IPoolFactory.sol";
 import "../interfaces/IInsurancePool.sol";
-import "../interfaces/IInvestAdapter.sol";
 import "../interfaces/IProtocolSettings.sol";
 
 enum DepositType {
@@ -108,9 +107,7 @@ contract CapitalPool is
         poolFactory = IPoolFactory(_poolFactory);
     }
 
-    function getTotalCapitalPoolValue(
-        address asset
-    ) public view returns (uint256) {
+    function getAssetCapitalValue(address asset) public view returns (uint256) {
         return totalAssets[asset];
     }
 
