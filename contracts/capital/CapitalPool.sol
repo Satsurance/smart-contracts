@@ -18,6 +18,7 @@ struct PoolInvest {
     uint256 activeDeposit;
     uint256 onHold;
     uint256 unpaidRewards;
+    uint256 shares;
 }
 
 contract CapitalPool is
@@ -29,6 +30,10 @@ contract CapitalPool is
 
     // Pool investment tracking using struct
     mapping(uint256 => PoolInvest) public poolInvestments;
+
+    // Share-based accounting per asset
+    mapping(address => uint256) public totalShares;
+    mapping(address => uint256) public totalAssets;
 
     constructor() {
         _disableInitializers();
@@ -84,12 +89,26 @@ contract CapitalPool is
         poolFactory = IPoolFactory(_poolFactory);
     }
 
-    function getTotalCapitalPoolValue() public view returns (uint256) {
-        return 0;
+    function getTotalCapitalPoolValue(
+        address asset
+    ) public view returns (uint256) {
+        return totalAssets[asset];
     }
 
     function getPoolValue(uint poolId) public view returns (uint256) {
-        return poolInvestments[poolId].activeDeposit;
+        address poolAddress = _getPoolAddress(poolId);
+        address asset = address(_getPoolAsset(poolAddress));
+
+        if (totalShares[asset] == 0) {
+            return 0;
+        }
+        return
+            (poolInvestments[poolId].shares * totalAssets[asset]) /
+            totalShares[asset];
+    }
+
+    function getPoolShares(uint poolId) public view returns (uint256) {
+        return poolInvestments[poolId].shares;
     }
 
     function deposit(
@@ -97,8 +116,18 @@ contract CapitalPool is
         uint amount,
         DepositType depositType
     ) public onlyValidPool(poolId) {
+        address poolAddress = _getPoolAddress(poolId);
+        address asset = address(_getPoolAsset(poolAddress));
+
         if (depositType == DepositType.Position) {
-            poolInvestments[poolId].activeDeposit += amount;
+            uint256 newShares = totalShares[asset] == 0
+                ? amount
+                : (amount * totalShares[asset]) / totalAssets[asset];
+
+            poolInvestments[poolId].shares += newShares;
+
+            totalShares[asset] += newShares;
+            totalAssets[asset] += amount;
         } else if (depositType == DepositType.Reward) {
             poolInvestments[poolId].unpaidRewards += amount;
         } else {
@@ -131,18 +160,44 @@ contract CapitalPool is
             "CapitalPool: caller is not the pool"
         );
         IERC20 poolAsset = _getPoolAsset(poolAddress);
+        address asset = address(poolAsset);
 
-        poolInvestments[poolId].activeDeposit -= amount;
+        // Calculate shares to burn based on claim amount
+        uint256 sharesToBurn = (amount * totalShares[asset]) /
+            totalAssets[asset];
+        poolInvestments[poolId].shares -= sharesToBurn;
+        totalShares[asset] -= sharesToBurn;
+
+        totalAssets[asset] -= amount;
+
         poolAsset.transfer(receiver, amount);
     }
 
     function onHold(uint poolId, uint amount) public onlyValidPool(poolId) {
-        poolInvestments[poolId].activeDeposit -= amount;
+        address poolAddress = _getPoolAddress(poolId);
+        address asset = address(_getPoolAsset(poolAddress));
+
         poolInvestments[poolId].onHold += amount;
+
+        uint256 sharesToBurn = (amount * totalShares[asset]) /
+            totalAssets[asset];
+        poolInvestments[poolId].shares -= sharesToBurn;
+        totalShares[asset] -= sharesToBurn;
+        totalAssets[asset] -= amount;
     }
 
     function reDeposit(uint poolId, uint amount) public onlyValidPool(poolId) {
+        address poolAddress = _getPoolAddress(poolId);
+        address asset = address(_getPoolAsset(poolAddress));
+
         poolInvestments[poolId].onHold -= amount;
-        poolInvestments[poolId].activeDeposit += amount;
+        uint256 newShares = totalShares[asset] == 0
+            ? amount
+            : (amount * totalShares[asset]) / totalAssets[asset];
+
+        poolInvestments[poolId].shares += newShares;
+
+        totalShares[asset] += newShares;
+        totalAssets[asset] += amount;
     }
 }

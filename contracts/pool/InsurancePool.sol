@@ -249,7 +249,8 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         uint currentEpisode = getCurrentEpisode();
         uint lastUpdatedEpisode = updatedRewardsAt / EPISODE_DURATION;
         uint updatedRewardsAt_ = updatedRewardsAt;
-        // Episodes will have additional capital pool rewads, but it is fair
+        totalAssetsStaked = capitalPool.getPoolValue(poolId);
+
         for (uint i = lastUpdatedEpisode; i < currentEpisode; i++) {
             uint prevEpisodeFinishTime = getEpisodeFinishTime(i);
 
@@ -264,7 +265,9 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
                 episodes[i].assetsStaked = episodes[i].episodeShares * totalAssetsStaked / totalPoolShares; // Includes capital pool rewards
 
             }
-            capitalPool.onHold(poolId, episodes[i].assetsStaked);
+            if(episodes[i].assetsStaked > 0) {
+                capitalPool.onHold(poolId, episodes[i].assetsStaked);
+            }
 
 
             // Remove expired episode from total pool count
