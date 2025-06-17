@@ -4,10 +4,12 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "../interfaces/IPoolFactory.sol";
 import "../interfaces/IInsurancePool.sol";
 import "../interfaces/IInvestAdapter.sol";
+import "../interfaces/IProtocolSettings.sol";
 
 enum DepositType {
     Position,
@@ -15,7 +17,6 @@ enum DepositType {
 }
 
 struct PoolInvest {
-    uint256 activeDeposit;
     uint256 onHold;
     uint256 unpaidRewards;
     uint256 shares;
@@ -24,9 +25,11 @@ struct PoolInvest {
 contract CapitalPool is
     Initializable,
     UUPSUpgradeable,
-    AccessControlUpgradeable
+    AccessControlUpgradeable,
+    PausableUpgradeable
 {
     IPoolFactory public poolFactory;
+    address public guardian;
 
     // Pool investment tracking using struct
     mapping(uint256 => PoolInvest) public poolInvestments;
@@ -42,6 +45,7 @@ contract CapitalPool is
     function initialize(address _poolFactory) public initializer {
         __UUPSUpgradeable_init();
         __AccessControl_init();
+        __Pausable_init();
 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         poolFactory = IPoolFactory(_poolFactory);
@@ -70,6 +74,21 @@ contract CapitalPool is
     function _authorizeUpgrade(
         address newImplementation
     ) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+
+    function updateGlobalSettings() public {
+        IProtocolSettings settings = IProtocolSettings(poolFactory.settings());
+        guardian = settings.guardian();
+    }
+
+    function pause() external {
+        require(msg.sender == guardian, "CapitalPool: only guardian can call");
+        _pause();
+    }
+
+    function unpause() external {
+        require(msg.sender == guardian, "CapitalPool: only guardian can call");
+        _unpause();
+    }
 
     function _getPoolAsset(address poolAddress) internal view returns (IERC20) {
         return IERC20(IInsurancePool(poolAddress).poolAsset());
@@ -115,7 +134,7 @@ contract CapitalPool is
         uint poolId,
         uint amount,
         DepositType depositType
-    ) public onlyValidPool(poolId) {
+    ) public onlyValidPool(poolId) whenNotPaused {
         address poolAddress = _getPoolAddress(poolId);
         address asset = address(_getPoolAsset(poolAddress));
 
@@ -140,7 +159,7 @@ contract CapitalPool is
         uint stakeAmount,
         uint rewardAmount, // rewards are calculated on the staking pool
         address receiver
-    ) public {
+    ) public whenNotPaused {
         address poolAddress = _getPoolAddress(poolId);
         require(
             poolAddress == msg.sender,
@@ -153,7 +172,11 @@ contract CapitalPool is
         poolAsset.transfer(receiver, stakeAmount + rewardAmount);
     }
 
-    function claimWithdraw(uint poolId, uint amount, address receiver) public {
+    function claimWithdraw(
+        uint poolId,
+        uint amount,
+        address receiver
+    ) public whenNotPaused {
         address poolAddress = _getPoolAddress(poolId);
         require(
             poolAddress == msg.sender,
@@ -173,7 +196,10 @@ contract CapitalPool is
         poolAsset.transfer(receiver, amount);
     }
 
-    function onHold(uint poolId, uint amount) public onlyValidPool(poolId) {
+    function onHold(
+        uint poolId,
+        uint amount
+    ) public onlyValidPool(poolId) whenNotPaused {
         address poolAddress = _getPoolAddress(poolId);
         address asset = address(_getPoolAsset(poolAddress));
 
@@ -186,7 +212,10 @@ contract CapitalPool is
         totalAssets[asset] -= amount;
     }
 
-    function reDeposit(uint poolId, uint amount) public onlyValidPool(poolId) {
+    function reDeposit(
+        uint poolId,
+        uint amount
+    ) public onlyValidPool(poolId) whenNotPaused {
         address poolAddress = _getPoolAddress(poolId);
         address asset = address(_getPoolAsset(poolAddress));
 

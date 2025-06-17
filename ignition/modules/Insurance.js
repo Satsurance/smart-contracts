@@ -152,6 +152,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
 
   // Update CapitalPool with the actual PoolFactory address
   const setPoolFactoryCall = m.call(capitalPool, "setPoolFactory", [poolFactory]);
+  const updateGlobalSettingsCall = m.call(capitalPool, "updateGlobalSettings", [], { after: [setPoolFactoryCall] });
 
   // Deploy upgradable PositionNFT
   let positionNFTLogic = m.contract("PositionNFT", [], {
