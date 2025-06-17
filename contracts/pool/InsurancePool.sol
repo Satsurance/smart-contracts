@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {IPoolFactory} from "../interfaces/IPoolFactory.sol";
+import {IProtocolSettings} from "../interfaces/IProtocolSettings.sol";
 import {ICoverNFT} from "../interfaces/ICoverNFT.sol";
 import {IPositionNFT} from "../interfaces/IPositionNFT.sol";
 import {ICapitalPool} from "../interfaces/ICapitalPool.sol";
@@ -105,6 +106,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
     uint public poolId;
     IPoolFactory public factory;
+    IProtocolSettings public protocolSettings;
     ICoverNFT public coverNFT;
     IPositionNFT public positionNFT;
 
@@ -186,8 +188,9 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         __Pausable_init();
         factory = IPoolFactory(msg.sender);
         poolId = factory.poolCount();
-        coverNFT = ICoverNFT(factory.coverNFT());
-        positionNFT = IPositionNFT(factory.positionNFT());
+        protocolSettings = IProtocolSettings(factory.settings());
+        coverNFT = ICoverNFT(protocolSettings.coverNFT());
+        positionNFT = IPositionNFT(protocolSettings.positionNFT());
         updateGlobalSettings();
 
         poolUnderwriter = poolUnderwriter_;
@@ -220,10 +223,10 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     }
 
     function updateGlobalSettings() public {
-        protocolRewardsAddress = factory.protocolRewardsAddress();
-        capitalPool = ICapitalPool(factory.capitalPool());
-        protocolFee = factory.protocolFee();
-        guardian = factory.guardian();
+        protocolRewardsAddress = protocolSettings.protocolRewardsAddress();
+        capitalPool = ICapitalPool(protocolSettings.capitalPool());
+        protocolFee = protocolSettings.protocolFee();
+        guardian = protocolSettings.guardian();
         require(protocolFee <= MAX_PROTOCOL_FEE, "Protocol fee too high");
 
         emit GlobalSettingsUpdated(
