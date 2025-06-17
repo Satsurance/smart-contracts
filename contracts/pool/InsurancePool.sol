@@ -61,7 +61,6 @@ event PoolPositionExtended(
     uint positionId,
     uint fromEpisode,
     uint toEpisode,
-    uint sharesWithdrawn,
     uint withdrawnAmount,
     uint totalPoolSharesAfter,
     uint totalAssetsAfter
@@ -319,7 +318,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             positions[positionsIds_[i]].rewardsCollected = 0;
         }
         if (reward > 0) {
-            poolAsset.transfer(msg.sender, reward);
+            capitalPool.positionWithdraw(poolId, 0, reward, msg.sender);
         }
     }
 
@@ -415,11 +414,10 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     }
 
 
-    // TODO RECHECK ALL THE LOGIC
-    function extendPoolPosition(uint positionId_, uint episodeToStake_, uint sharesToWithdraw_, uint amountToDeposit_) external whenNotPaused returns (bool) {
+    function extendPoolPosition(uint positionId_, uint episodeToStake_, uint withdrawAmount_, uint amountToDeposit_) external whenNotPaused returns (bool) {
         require(msg.sender == positionNFT.ownerOf(positionId_), "Only position owner can extend");
         require(msg.sender == poolUnderwriter || isNewDepositAccepted, "Extended deposits are not allowed");
-        require((amountToDeposit_ == 0 && sharesToWithdraw_ >= 0)||(amountToDeposit_ > 0 && sharesToWithdraw_ == 0), "It is only possible to deposit or withdraw, not both");
+        require((amountToDeposit_ == 0 && withdrawAmount_ >= 0)||(amountToDeposit_ > 0 && withdrawAmount_ == 0), "It is only possible to deposit or withdraw, not both");
 
         uint currentEpisode = getCurrentEpisode();
         require(episodeToStake_ < currentEpisode + MAX_ACTIVE_EPISODES, "Too long staking time");
@@ -429,81 +427,80 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         _updateEpisodesState();
 
         PoolStake storage position = positions[positionId_];
-        require(msg.sender != poolUnderwriter || sharesToWithdraw_ <= maxUnderwriterSharesToUnstake(), "Underwriter position can't be less than allowed");
-        require(position.episode < currentEpisode || sharesToWithdraw_ == 0, "It is possible to withdraw on extend only for the expired positions");
+        uint sharesToWithdraw = withdrawAmount_ * position.shares / position.rewardShares;
+        require(position.episode < episodeToStake_, "It is allowed to extend into a later episode");
+        require(msg.sender != poolUnderwriter || sharesToWithdraw <= maxUnderwriterSharesToUnstake(), "Underwriter position can't be less than allowed");
+        require(position.episode < currentEpisode || sharesToWithdraw == 0, "It is possible to withdraw on extend only for the expired positions");
 
         uint fromEpisode = position.episode; // Capture original episode for event
-        uint earnedRewards = 0;
-        if(position.episode < currentEpisode) {
-            // Calculate reward and also update the position reward per share
-            earnedRewards = earnedPosition(positionId_);
-            position.rewardPerShare = accumulatedRewardRatePerShare;
-        }
+        // Collect rewards
+        earnedPosition(positionId_);
 
-        // Clean previous episode
-        uint movedAssets = 0;
-        uint withdrawAmount = 0;
-        {
+        uint positionAssets = 0;
+        if(position.episode < currentEpisode) {
             Episode storage previouslyDepositedEpisode = episodes[position.episode];
-            uint positionAssets = (position.shares * previouslyDepositedEpisode.assetsStaked) / previouslyDepositedEpisode.episodeShares;
-            withdrawAmount = (sharesToWithdraw_ * previouslyDepositedEpisode.assetsStaked) / previouslyDepositedEpisode.episodeShares;
-            movedAssets = positionAssets - withdrawAmount;
+            positionAssets = (position.shares * previouslyDepositedEpisode.assetsStaked) / previouslyDepositedEpisode.episodeShares;
+            uint movedAssets = positionAssets - withdrawAmount_;
             previouslyDepositedEpisode.assetsStaked -= positionAssets;
             previouslyDepositedEpisode.episodeShares -= position.shares;
             previouslyDepositedEpisode.rewardShares -= position.rewardShares;
-        }
 
-
-
-        {
-            uint newShares = 0;
-            uint newRewardShares = 0;
-            if(amountToDeposit_ > 0) {
-                poolAsset.transferFrom(msg.sender, address(capitalPool), amountToDeposit_);
-                capitalPool.deposit(poolId, amountToDeposit_, ICapitalPool.DepositType.Position);
-                // Update moving assets
-                newShares =  (amountToDeposit_ * totalPoolShares) / totalAssetsStaked;
-                newRewardShares = newShares + newShares * (episodeToStake_ - currentEpisode - 2) * bonusPerEpisodeStaked / BASIS_POINTS;
-
-                position.shares += newShares;
-                position.rewardShares += newRewardShares;
-
-                totalPoolShares += newShares;
-                totalAssetsStaked += amountToDeposit_;
-                totalRewardShares += newRewardShares;
-
+            
+            if(withdrawAmount_ > 0) {
+                capitalPool.positionWithdraw(poolId, withdrawAmount_, 0, msg.sender);
             }
-            require(msg.sender == poolUnderwriter || newRewardShares <= maxSharesUserToStake(), "Underwriter position can't be less than allowed");
-
-            // Update new target episode
-            Episode storage targetEpisode = episodes[episodeToStake_];
-            targetEpisode.assetsStaked += (movedAssets + amountToDeposit_);
-            targetEpisode.episodeShares += (position.shares - sharesToWithdraw_ + newShares);
-            targetEpisode.rewardShares += (position.rewardShares + newRewardShares);
-            position.shares -= sharesToWithdraw_;
-        }
-
-        // Only for the expired positions
-        if(position.episode < currentEpisode) {
-            totalPoolShares += position.shares - sharesToWithdraw_;
-            totalAssetsStaked += movedAssets;
-            totalRewardShares += position.rewardShares;
             capitalPool.reDeposit(poolId, movedAssets);
+
+            uint newShares = ((amountToDeposit_ + movedAssets) * totalPoolShares) / totalAssetsStaked;
+            require(msg.sender == poolUnderwriter || newShares <= maxSharesUserToStake(), "Underwriter position can't be less than allowed");
+
+            uint newRewardShares = newShares + newShares * (episodeToStake_ - currentEpisode - 2) * bonusPerEpisodeStaked / BASIS_POINTS;
+            position.shares = newShares;
+            position.rewardShares = newRewardShares;
+
+            totalPoolShares += newShares;
+            totalAssetsStaked += amountToDeposit_ + movedAssets;
+            totalRewardShares += newRewardShares;
+        } else {
+            Episode storage previouslyDepositedEpisode = episodes[position.episode];
+            uint episodeAssets = episodes[position.episode].episodeShares * totalAssetsStaked / totalPoolShares;
+            positionAssets = (position.shares * episodeAssets) / previouslyDepositedEpisode.episodeShares;
+            previouslyDepositedEpisode.assetsStaked -= positionAssets;
+            previouslyDepositedEpisode.episodeShares -= position.shares;
+            previouslyDepositedEpisode.rewardShares -= position.rewardShares;
+
+            uint newShares = amountToDeposit_ * totalPoolShares / totalAssetsStaked;
+            require(msg.sender == poolUnderwriter || newShares <= maxSharesUserToStake(), "Underwriter position can't be less than allowed");
+
+            uint newRewardShares = newShares + newShares * (episodeToStake_ - currentEpisode - 2) * bonusPerEpisodeStaked / BASIS_POINTS;
+            position.shares += newShares;
+            position.rewardShares += newRewardShares;
+
+            totalPoolShares += newShares;
+            totalAssetsStaked += amountToDeposit_;
+            totalRewardShares += newRewardShares;
         }
+
+        // Update new target episode
+        Episode storage targetEpisode = episodes[episodeToStake_];
+        targetEpisode.assetsStaked += positionAssets;
+        targetEpisode.episodeShares += position.shares;
+        targetEpisode.rewardShares += position.rewardShares;
 
         position.episode = episodeToStake_;
 
-        if(withdrawAmount > 0 || earnedRewards > 0) {
-            capitalPool.positionWithdraw(poolId, withdrawAmount, earnedRewards, msg.sender);
+        if(amountToDeposit_ > 0) {
+            poolAsset.transferFrom(msg.sender, address(capitalPool), amountToDeposit_);
+            capitalPool.deposit(poolId, amountToDeposit_, ICapitalPool.DepositType.Position);
         }
+            
 
         emit PoolPositionExtended(
             msg.sender,
             positionId_,
             fromEpisode,
             episodeToStake_,
-            sharesToWithdraw_,
-            withdrawAmount,
+            withdrawAmount_,
             totalPoolShares,
             totalAssetsStaked
         );
@@ -549,6 +546,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         );
 
         capitalPool.positionWithdraw(poolId, positionAmount, rewards, toRemove);
+        positionNFT.burnPositionNFT(positionId_);
 
         return true;
     }

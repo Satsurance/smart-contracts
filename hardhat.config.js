@@ -16,6 +16,7 @@ const config = {
         enabled: true,
         runs: 20000,
       },
+      viaIR: true,
     },
   },
 };
