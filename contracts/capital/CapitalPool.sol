@@ -19,6 +19,7 @@ struct PoolInvest {
     uint256 onHold;
     uint256 unpaidRewards;
     uint256 shares;
+    address asset;
 }
 
 contract CapitalPool is
@@ -112,8 +113,7 @@ contract CapitalPool is
     }
 
     function getPoolValue(uint poolId) public view returns (uint256) {
-        address poolAddress = _getPoolAddress(poolId);
-        address asset = address(_getPoolAsset(poolAddress));
+        address asset = poolInvestments[poolId].asset;
 
         if (totalShares[asset] == 0) {
             return 0;
@@ -132,8 +132,13 @@ contract CapitalPool is
         uint amount,
         DepositType depositType
     ) public onlyValidPool(poolId) whenNotPaused {
-        address poolAddress = _getPoolAddress(poolId);
-        address asset = address(_getPoolAsset(poolAddress));
+        // Set asset field if it's zero address
+        if (poolInvestments[poolId].asset == address(0)) {
+            poolInvestments[poolId].asset = address(
+                _getPoolAsset(_getPoolAddress(poolId))
+            );
+        }
+        address asset = poolInvestments[poolId].asset;
 
         if (depositType == DepositType.Position) {
             uint256 newShares = totalShares[asset] == 0
@@ -156,31 +161,21 @@ contract CapitalPool is
         uint stakeAmount,
         uint rewardAmount, // rewards are calculated on the staking pool
         address receiver
-    ) public whenNotPaused {
-        address poolAddress = _getPoolAddress(poolId);
-        require(
-            poolAddress == msg.sender,
-            "CapitalPool: caller is not the pool"
-        );
-        IERC20 poolAsset = _getPoolAsset(poolAddress);
-
+    ) public onlyValidPool(poolId) whenNotPaused {
         poolInvestments[poolId].onHold -= stakeAmount;
         poolInvestments[poolId].unpaidRewards -= rewardAmount;
-        poolAsset.transfer(receiver, stakeAmount + rewardAmount);
+        IERC20(poolInvestments[poolId].asset).transfer(
+            receiver,
+            stakeAmount + rewardAmount
+        );
     }
 
     function claimWithdraw(
         uint poolId,
         uint amount,
         address receiver
-    ) public whenNotPaused {
-        address poolAddress = _getPoolAddress(poolId);
-        require(
-            poolAddress == msg.sender,
-            "CapitalPool: caller is not the pool"
-        );
-        IERC20 poolAsset = _getPoolAsset(poolAddress);
-        address asset = address(poolAsset);
+    ) public onlyValidPool(poolId) whenNotPaused {
+        address asset = poolInvestments[poolId].asset;
 
         // Calculate shares to burn based on claim amount
         uint256 sharesToBurn = (amount * totalShares[asset]) /
@@ -190,15 +185,14 @@ contract CapitalPool is
 
         totalAssets[asset] -= amount;
 
-        poolAsset.transfer(receiver, amount);
+        IERC20(asset).transfer(receiver, amount);
     }
 
     function onHold(
         uint poolId,
         uint amount
     ) public onlyValidPool(poolId) whenNotPaused {
-        address poolAddress = _getPoolAddress(poolId);
-        address asset = address(_getPoolAsset(poolAddress));
+        address asset = poolInvestments[poolId].asset;
 
         poolInvestments[poolId].onHold += amount;
 
@@ -213,8 +207,7 @@ contract CapitalPool is
         uint poolId,
         uint amount
     ) public onlyValidPool(poolId) whenNotPaused {
-        address poolAddress = _getPoolAddress(poolId);
-        address asset = address(_getPoolAsset(poolAddress));
+        address asset = poolInvestments[poolId].asset;
 
         poolInvestments[poolId].onHold -= amount;
         uint256 newShares = totalShares[asset] == 0
