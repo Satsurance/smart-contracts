@@ -132,7 +132,6 @@ contract CapitalPool is
         uint amount,
         DepositType depositType
     ) public onlyValidPool(poolId) whenNotPaused {
-        // Set asset field if it's zero address
         if (poolInvestments[poolId].asset == address(0)) {
             poolInvestments[poolId].asset = address(
                 _getPoolAsset(_getPoolAddress(poolId))
@@ -159,7 +158,7 @@ contract CapitalPool is
     function positionWithdraw(
         uint poolId,
         uint stakeAmount,
-        uint rewardAmount, // rewards are calculated on the staking pool
+        uint rewardAmount,
         address receiver
     ) public onlyValidPool(poolId) whenNotPaused {
         poolInvestments[poolId].onHold -= stakeAmount;
