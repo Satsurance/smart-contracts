@@ -342,6 +342,7 @@ describe("InsurancePool", async function () {
     const shortEpisodeToStake = currentEpisode + shortEpisodeOffset;
     const longEpisodeToStake = currentEpisode + longEpisodeOffset;
     const shortEpisodeFinishTime = (shortEpisodeToStake + 1n) * episodeDuration;
+    const longEpisodeFinishTime = (longEpisodeToStake + 1n) * episodeDuration;
 
     // Create long-term position
     await insurancePool
@@ -353,10 +354,6 @@ describe("InsurancePool", async function () {
 
     const ownerPositionId = await positionNFT.tokenOfOwnerByIndex(owner.address, 0);
     const underwriterPositionId = await positionNFT.tokenOfOwnerByIndex(poolUnderwriter.address, 0);
-
-    // Get timing information
-    const shortEpisodeExpiry = shortEpisodeToStake * episodeDuration;
-    const longEpisodeExpiry = longEpisodeToStake * episodeDuration;
 
 
     // Purchase coverage to generate rewards (single purchase)
@@ -374,8 +371,12 @@ describe("InsurancePool", async function () {
       rewardAmount * (coverageFinishTime - shortEpisodeFinishTime) / (coverageFinishTime - purchaseTime);
     const expectedShortReward = rewardAmount - expectedLongReward;
 
+    await time.increaseTo(shortEpisodeFinishTime + 1n);
+    const rewardsShort = await insurancePool.earnedPosition.staticCall(ownerPositionId);
+    expectAllowedUnderstaking(rewardsShort, expectedShortReward, ALLOWED_UNDERSTAKING);
 
-    await time.increaseTo(longEpisodeExpiry + longEpisodeExpiry + 1n);
+
+    await time.increaseTo(longEpisodeFinishTime + 1n);
     const finalRewards_short = await insurancePool.earnedPosition.staticCall(ownerPositionId);
     const finalRewards_long = await insurancePool.earnedPositions.staticCall([underwriterPositionId, 0]);
 
