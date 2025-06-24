@@ -3,6 +3,7 @@ const {
     signUnstakeRequest,
     signCoveragePurchase,
 } = require("../utils/signatures");
+const { expect } = require("chai");
 
 // Episode duration matches the contract: 91 days / 3 = ~30.33 days
 const EPISODE_DURATION = Math.floor((91 * 24 * 60 * 60) / 3); // 91 days / 3 in seconds
@@ -77,10 +78,22 @@ async function purchaseCoverage({
         );
 }
 
+/**
+ * Check that actual value is equal to or less than expected value within allowed error tolerance
+ * @param {BigInt|number} actual - The actual value to check
+ * @param {BigInt|number} expected - The expected maximum value
+ * @param {BigInt|number} allowedError - The allowed understaking/error tolerance
+ */
+function expectAllowedUnderstaking(actual, expected, allowedError) {
+    expect(actual).to.be.approximately(expected, allowedError);
+    expect(actual).to.be.at.most(expected);
+}
+
 module.exports = {
     purchaseCoverage,
     getCurrentEpisode,
     getEpisodeStartTime,
     getEpisodeFinishTime,
+    expectAllowedUnderstaking,
     EPISODE_DURATION,
 }; 

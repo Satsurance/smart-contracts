@@ -6,19 +6,11 @@ const {
 const InsuranceSetup = require("../ignition/modules/Insurance.js");
 
 /**
- * Basic fixture that sets up the insurance deployment with common configurations
- * @returns {Object} The deployed contracts and configuration
- */
-async function basicFixture() {
-    return await parametrizedFixture();
-}
-
-/**
- * Parametrized fixture that allows customizing ignition module deployment parameters
+ * Fixture that allows customizing ignition module deployment parameters
  * @param {Object} deploymentParams - Parameters to pass to ignition module
  * @returns {Object} The deployed contracts and configuration
  */
-async function parametrizedFixture(deploymentParams = {}) {
+async function basicFixture(deploymentParams = {}) {
     // Default deployment parameters (can be overridden)
     const defaultDeploymentParams = {
         initialSupply: ethers.parseUnits("20000000000", "ether").toString(),
@@ -30,6 +22,7 @@ async function parametrizedFixture(deploymentParams = {}) {
         bonusPerEpisodeStaked: 0,
         claimDeposit: 0,
         approvalPeriod: 3 * 7 * 24 * 60 * 60, // 3 weeks
+        executionTimeout: 7 * 24 * 60 * 60, // 1 week
     };
 
     // Merge with provided parameters
@@ -80,5 +73,4 @@ async function parametrizedFixture(deploymentParams = {}) {
 
 module.exports = {
     basicFixture,
-    parametrizedFixture
 }; 

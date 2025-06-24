@@ -19,7 +19,7 @@ describe("Claimer", async function () {
         const episodeOffset = 23;
         const claimDescription = "Test claim";
 
-        const { btcToken, sursToken, insurancePool, claimer, accounts } = await loadFixture(
+        const { btcToken, sursToken, insurancePool, claimer, accounts, deploymentParams } = await loadFixture(
             basicFixture
         );
         const { owner, poolUnderwriter } = accounts;
@@ -62,7 +62,14 @@ describe("Claimer", async function () {
         const approvedClaim = await claimer.getClaimDetails(0);
         expect(approvedClaim.approved).to.be.true;
 
-        // Execute claim
+        await expect(claimer.executeClaim(0)).to.be.revertedWith(
+            "Execution timeout has not expired"
+        );
+
+        const executionTimeout = deploymentParams.executionTimeout;
+        await time.increase(executionTimeout + 1);
+
+        // Execute claim after timeout
         await claimer.executeClaim(0);
 
         // Verify claim execution

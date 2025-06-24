@@ -250,15 +250,16 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
                 capitalPool.onHold(poolId, episodes[i].assetsStaked);
             }
 
+            // Collect underwriter fee
+            positions[0].rewardsCollected += _earnedPosition(0);
+            positions[0].rewardShares -= episodes[i].rewardShares * underwriterFee / BASIS_POINTS;
+            positions[0].rewardPerShare = accumulatedRewardRatePerShare;
+
             // Remove expired episode from total pool count
             totalPoolShares -= episodes[i].episodeShares;
             totalAssetsStaked -= episodes[i].assetsStaked;
             totalCoverAllocation -= episodes[i].coverageDecrease;
             totalRewardShares -= episodes[i].rewardShares;
-            // Collect underwriter fee
-            positions[0].rewardsCollected += _earnedPosition(0);
-            positions[0].rewardShares -= episodes[i].rewardShares * underwriterFee / BASIS_POINTS;
-            positions[0].rewardPerShare = accumulatedRewardRatePerShare;
         }
         accumulatedRewardRatePerShare += rewardRatePerShare(updatedRewardsAt_, block.timestamp);
         updatedRewardsAt = block.timestamp;
@@ -445,7 +446,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             previouslyDepositedEpisode.episodeShares -= position.shares;
             previouslyDepositedEpisode.rewardShares -= position.rewardShares;
 
-            
+
             if(withdrawAmount_ > 0) {
                 capitalPool.positionWithdraw(poolId, withdrawAmount_, 0, msg.sender);
             }
@@ -493,7 +494,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             poolAsset.transferFrom(msg.sender, address(capitalPool), amountToDeposit_);
             capitalPool.deposit(poolId, amountToDeposit_, ICapitalPool.DepositType.Position);
         }
-            
+
 
         emit PoolPositionExtended(
             msg.sender,
@@ -562,19 +563,19 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         PoolStake storage underwriterPosition = positions[underwriterPositionId];
         Episode storage underwriterEpisode = episodes[underwriterPosition.episode];
         uint underwriterStake = underwriterPosition.shares * underwriterEpisode.assetsStaked / underwriterEpisode.episodeShares;
-        uint maxUnderwriterStakeToBurn = (underwriterFirstLoss * totalPoolShares * totalAssetsStaked / totalPoolShares) / BASIS_POINTS;       
+        uint maxUnderwriterStakeToBurn = (underwriterFirstLoss * totalPoolShares * totalAssetsStaked / totalPoolShares) / BASIS_POINTS;
         if(underwriterStake < maxUnderwriterStakeToBurn) {
             maxUnderwriterStakeToBurn = underwriterStake;
         }
 
         uint underwriterBurn = amount_;
         uint leftToSlash = 0;
-        
+
         // Determine actual underwriter burn amount and leftover to slash
         if (amount_ > maxUnderwriterStakeToBurn) {
             underwriterBurn = maxUnderwriterStakeToBurn;
             leftToSlash = amount_ - underwriterBurn;
-            
+
             // Handle corner case: adjust if remaining amount is too small
             if (leftToSlash < MINIMUM_STAKE_AMOUNT_BTC) {
                 // There shouldn't be such a small claim to trigger overflow
@@ -582,13 +583,13 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
                 leftToSlash += MINIMUM_STAKE_AMOUNT_BTC;
             }
         }
-        
+
         if (underwriterBurn > 0) {
             uint sharesToBurn = underwriterBurn * underwriterEpisode.episodeShares / underwriterEpisode.assetsStaked;
             underwriterEpisode.episodeShares -= sharesToBurn;
             underwriterEpisode.assetsStaked -= underwriterBurn;
             underwriterPosition.shares -= sharesToBurn;
-            
+
             // Update totals only if underwriter position is still active
             if (currentEpisode <= underwriterPosition.episode) {
                 totalAssetsStaked -= underwriterBurn;

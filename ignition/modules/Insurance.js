@@ -25,6 +25,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   const claimerOperator = m.getParameter("claimerOperator", m.getAccount(0));
   const claimDeposit = m.getParameter("claimDeposit", 0);
   const approvalPeriod = m.getParameter("approvalPeriod", 3 * 7 * 24 * 60 * 60); // 3 weeks
+  const executionTimeout = m.getParameter("executionTimeout", 7 * 24 * 60 * 60); // 1 week
 
   // Account parameters
   const poolUnderwriter = m.getParameter("poolUnderwriter", m.getAccount(1));
@@ -209,6 +210,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
         claimDeposit, // claimDeposit amount
         btcToken, // depositToken address
         approvalPeriod, // approvalPeriod in seconds
+        executionTimeout, // executionTimeout in seconds
       ]),
     ],
     { id: "ClaimerProxy" }

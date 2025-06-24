@@ -15,6 +15,7 @@ struct Claim {
     uint256 amount;
     uint256 depositAmount;
     uint256 startTime;
+    uint256 approvalTime;
     bool approved;
     bool executed;
     bool exists;
@@ -30,6 +31,7 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
     // State variables
     uint256 public claimDeposit;
     uint256 public approvalPeriod;
+    uint256 public executionTimeout;
     IERC20 public depositToken;
 
     mapping(uint256 => Claim) public claims;
@@ -56,6 +58,7 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
     );
     event ClaimDepositChanged(uint256 oldDeposit, uint256 newDeposit);
     event ApprovalPeriodChanged(uint256 oldPeriod, uint256 newPeriod);
+    event ExecutionTimeoutChanged(uint256 oldTimeout, uint256 newTimeout);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -68,7 +71,8 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
         address operator_,
         uint256 claimDeposit_,
         address depositToken_,
-        uint256 approvalPeriod_
+        uint256 approvalPeriod_,
+        uint256 executionTimeout_
     ) public initializer {
         __AccessControl_init();
         __UUPSUpgradeable_init();
@@ -82,6 +86,7 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
 
         claimDeposit = claimDeposit_;
         approvalPeriod = approvalPeriod_;
+        executionTimeout = executionTimeout_;
         depositToken = IERC20(depositToken_);
     }
 
@@ -99,6 +104,14 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
         uint256 oldPeriod = approvalPeriod;
         approvalPeriod = newApprovalPeriod;
         emit ApprovalPeriodChanged(oldPeriod, newApprovalPeriod);
+    }
+
+    function setExecutionTimeout(
+        uint256 newExecutionTimeout
+    ) external onlyRole(OPERATOR_MANAGER_ROLE) {
+        uint256 oldTimeout = executionTimeout;
+        executionTimeout = newExecutionTimeout;
+        emit ExecutionTimeoutChanged(oldTimeout, newExecutionTimeout);
     }
 
     function createClaim(
@@ -122,6 +135,7 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
             amount: amount,
             depositAmount: claimDeposit,
             startTime: block.timestamp,
+            approvalTime: 0,
             approved: false,
             executed: false,
             exists: true,
@@ -151,6 +165,7 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
         );
 
         claim.approved = true;
+        claim.approvalTime = block.timestamp;
 
         if (claim.depositAmount > 0) {
             depositToken.transfer(claim.proposer, claim.depositAmount);
@@ -176,6 +191,10 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
         require(claim.exists, "Claim does not exist");
         require(!claim.executed, "Claim already executed");
         require(claim.approved, "Claim not approved");
+        require(
+            block.timestamp > claim.approvalTime + executionTimeout,
+            "Execution timeout has not expired"
+        );
 
         claim.executed = true;
 
@@ -221,6 +240,7 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
             uint256 amount,
             uint256 depositAmount,
             uint256 startTime,
+            uint256 approvalTime,
             bool approved,
             bool executed,
             bool exists,
@@ -238,6 +258,7 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
             claim.amount,
             claim.depositAmount,
             claim.startTime,
+            claim.approvalTime,
             claim.approved,
             claim.executed,
             claim.exists,
