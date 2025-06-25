@@ -356,7 +356,6 @@ describe("InsurancePool", async function () {
     const underwriterPositionId = await positionNFT.tokenOfOwnerByIndex(poolUnderwriter.address, 0);
 
 
-    // Purchase coverage to generate rewards (single purchase)
     await purchaseCoverage({
       insurancePool,
       poolAsset: btcToken,

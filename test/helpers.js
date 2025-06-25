@@ -89,11 +89,42 @@ function expectAllowedUnderstaking(actual, expected, allowedError) {
     expect(actual).to.be.at.most(expected);
 }
 
+/**
+ * Helper function to create initialization data for InsurancePool
+ * @param {string} poolUnderwriter - Address of the pool underwriter
+ * @param {string} governor - Address of the governor
+ * @param {string} poolAsset - Address of the pool asset token
+ * @param {string} claimer - Address of the claimer contract
+ * @param {number} minUnderwriterPercentage - Minimum underwriter percentage (default: 1000)
+ * @param {number} bonusPerEpisodeStaked - Bonus per episode staked (default: 0)
+ * @param {boolean} isNewDepositAccepted - Whether new deposits are accepted (default: true)
+ * @param {number} underwriterFee - Underwriter fee (default: 1000)
+ * @param {number} underwriterFirstLoss - Underwriter first loss (default: 0)
+ * @returns {string} Encoded initialization data
+ */
+function createPoolInitData(poolUnderwriter, governor, poolAsset, claimer, minUnderwriterPercentage = 1000, bonusPerEpisodeStaked = 0, isNewDepositAccepted = true, underwriterFee = 1000, underwriterFirstLoss = 0) {
+    return ethers.AbiCoder.defaultAbiCoder().encode(
+        ["address", "address", "address", "address", "uint256", "uint256", "bool", "uint256", "uint256"],
+        [
+            poolUnderwriter,
+            governor,
+            poolAsset,
+            claimer,
+            minUnderwriterPercentage,
+            bonusPerEpisodeStaked,
+            isNewDepositAccepted,
+            underwriterFee,
+            underwriterFirstLoss
+        ]
+    );
+}
+
 module.exports = {
     purchaseCoverage,
     getCurrentEpisode,
     getEpisodeStartTime,
     getEpisodeFinishTime,
     expectAllowedUnderstaking,
+    createPoolInitData,
     EPISODE_DURATION,
 }; 
