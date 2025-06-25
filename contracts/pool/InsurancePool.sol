@@ -428,7 +428,8 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         _updateEpisodesState();
 
         PoolStake storage position = positions[positionId_];
-        uint sharesToWithdraw = withdrawAmount_ * position.shares / position.rewardShares;
+        Episode storage previouslyDepositedEpisode = episodes[position.episode];
+        uint sharesToWithdraw = withdrawAmount_ * previouslyDepositedEpisode.episodeShares / previouslyDepositedEpisode.assetsStaked;
         require(position.episode < episodeToStake_, "It is allowed to extend into a later episode");
         require(msg.sender != poolUnderwriter || sharesToWithdraw <= maxUnderwriterSharesToUnstake(), "Underwriter position can't be less than allowed");
         require(position.episode < currentEpisode || sharesToWithdraw == 0, "It is possible to withdraw on extend only for the expired positions");
@@ -438,8 +439,8 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         earnedPosition(positionId_);
 
         uint positionAssets = 0;
+        uint newRewardShares = 0;
         if(position.episode < currentEpisode) {
-            Episode storage previouslyDepositedEpisode = episodes[position.episode];
             positionAssets = (position.shares * previouslyDepositedEpisode.assetsStaked) / previouslyDepositedEpisode.episodeShares;
             uint movedAssets = positionAssets - withdrawAmount_;
             previouslyDepositedEpisode.assetsStaked -= positionAssets;
@@ -452,10 +453,10 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             }
             capitalPool.reDeposit(poolId, movedAssets);
 
-            uint newShares = ((amountToDeposit_ + movedAssets) * totalPoolShares) / totalAssetsStaked;
+            uint newShares = totalPoolShares == 0 ? amountToDeposit_ + movedAssets : ((amountToDeposit_ + movedAssets) * totalPoolShares) / totalAssetsStaked;
             require(msg.sender == poolUnderwriter || newShares <= maxSharesUserToStake(), "Underwriter position can't be less than allowed");
 
-            uint newRewardShares = newShares + newShares * (episodeToStake_ - currentEpisode - 2) * bonusPerEpisodeStaked / BASIS_POINTS;
+            newRewardShares = newShares + newShares * (episodeToStake_ - currentEpisode - 2) * bonusPerEpisodeStaked / BASIS_POINTS;
             position.shares = newShares;
             position.rewardShares = newRewardShares;
 
@@ -463,7 +464,6 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             totalAssetsStaked += amountToDeposit_ + movedAssets;
             totalRewardShares += newRewardShares;
         } else {
-            Episode storage previouslyDepositedEpisode = episodes[position.episode];
             uint episodeAssets = episodes[position.episode].episodeShares * totalAssetsStaked / totalPoolShares;
             positionAssets = (position.shares * episodeAssets) / previouslyDepositedEpisode.episodeShares;
             previouslyDepositedEpisode.assetsStaked -= positionAssets;
@@ -473,7 +473,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             uint newShares = amountToDeposit_ * totalPoolShares / totalAssetsStaked;
             require(msg.sender == poolUnderwriter || newShares <= maxSharesUserToStake(), "Underwriter position can't be less than allowed");
 
-            uint newRewardShares = newShares + newShares * (episodeToStake_ - currentEpisode - 2) * bonusPerEpisodeStaked / BASIS_POINTS;
+            newRewardShares = newShares + newShares * (episodeToStake_ - currentEpisode - 2) * bonusPerEpisodeStaked / BASIS_POINTS;
             position.shares += newShares;
             position.rewardShares += newRewardShares;
 
@@ -481,6 +481,11 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             totalAssetsStaked += amountToDeposit_;
             totalRewardShares += newRewardShares;
         }
+
+        // Add underwriter reward shares
+        uint underwriterRewardShares = (newRewardShares * underwriterFee) / (BASIS_POINTS - underwriterFee);
+        positions[0].rewardShares += underwriterRewardShares;
+        totalRewardShares += underwriterRewardShares;
 
         // Update new target episode
         Episode storage targetEpisode = episodes[episodeToStake_];
