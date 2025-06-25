@@ -383,4 +383,60 @@ describe("InsurancePool", async function () {
     expectAllowedUnderstaking(finalRewards_short, expectedShortReward, ALLOWED_UNDERSTAKING);
     expectAllowedUnderstaking(finalRewards_long + finalRewards_short, rewardAmount, ALLOWED_UNDERSTAKING);
   });
+
+  it("test isNewDepositAccepted functionality", async function () {
+    const underwriterStakeAmount = ethers.parseUnits("100", "ether");
+    const userStakeAmount = ethers.parseUnits("10", "ether");
+    const extendDepositAmount = ethers.parseUnits("5", "ether");
+    const episodeOffset = 23n;
+
+    const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
+    const { owner, poolUnderwriter } = accounts;
+
+    const currentEpisode = BigInt(await getCurrentEpisode());
+    const episodeToStake = currentEpisode + episodeOffset;
+    const extendEpisodeToStake = currentEpisode + episodeOffset + 3n;
+
+    // Initially, isNewDepositAccepted should be true (from fixture)
+    expect(await insurancePool.isNewDepositAccepted()).to.be.true;
+
+    // Underwriter should always be able to join regardless of flag
+    await insurancePool
+      .connect(poolUnderwriter)
+      .joinPool(underwriterStakeAmount, episodeToStake);
+
+    // Regular user should be able to join when flag is true
+    await insurancePool.connect(owner).joinPool(userStakeAmount, episodeToStake);
+    const ownerPositionId = await positionNFT.tokenOfOwnerByIndex(owner.address, 0);
+
+    // Test setNewDepositsFlag - only underwriter should be able to call it
+    await expect(
+      insurancePool.connect(owner).setNewDepositsFlag(false)
+    ).to.be.revertedWith("Access check failed");
+
+    // Underwriter sets flag to false
+    await insurancePool.connect(poolUnderwriter).setNewDepositsFlag(false);
+    expect(await insurancePool.isNewDepositAccepted()).to.be.false;
+
+    // Underwriter should still be able to join (but can't have multiple positions)
+    // This should fail because underwriter already has a position
+    await expect(
+      insurancePool.connect(poolUnderwriter).joinPool(userStakeAmount, episodeToStake)
+    ).to.be.revertedWith("Underwriter can't have multiple positions");
+
+    // Test extendPoolPosition when flag is false
+    // First, wait for position to expire so we can extend it
+    const episodeDuration = await insurancePool.EPISODE_DURATION();
+    await time.increaseTo((episodeToStake + 1n) * episodeDuration + 1n);
+
+    // Regular user should not be able to extend when flag is false
+    await expect(
+      insurancePool.connect(owner).extendPoolPosition(
+        ownerPositionId,
+        extendEpisodeToStake,
+        0, // no withdrawal
+        extendDepositAmount
+      )
+    ).to.be.revertedWith("Extended deposits are not allowed");
+  });
 });
