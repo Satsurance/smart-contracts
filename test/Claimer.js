@@ -7,9 +7,6 @@ const { basicFixture } = require("./fixtures.js");
 
 const { expect } = require("chai");
 
-const ALLOWED_UNDERSTAKING = ethers.parseUnits("0.000000001", "ether"); // 0.01 cent if bitcoin costs 100k
-const SECS_IN_DAY = 60 * 60 * 24;
-
 describe("Claimer", async function () {
 
     it("test claim approval and execution", async function () {

@@ -4,9 +4,7 @@ const {
     signCoveragePurchase,
 } = require("../utils/signatures");
 const { expect } = require("chai");
-
-// Episode duration matches the contract: 91 days / 3 = ~30.33 days
-const EPISODE_DURATION = Math.floor((91 * 24 * 60 * 60) / 3); // 91 days / 3 in seconds
+const { EPISODE_DURATION } = require("./constants.js");
 
 /**
  * Calculate the current episode locally using the same logic as the contract
@@ -126,5 +124,4 @@ module.exports = {
     getEpisodeFinishTime,
     expectAllowedUnderstaking,
     createPoolInitData,
-    EPISODE_DURATION,
 }; 

@@ -101,7 +101,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     uint256 public constant MAX_ACTIVE_EPISODES = 24;
     uint public constant EPISODE_DURATION = 91 days / 3;
     uint public constant BASIS_POINTS = 10000; // 100% in basis points
-    uint public constant MINIMUM_STAKE_AMOUNT_BTC = 9500000000000; // $1 in BTC
+    uint public constant MINIMUM_STAKE_AMOUNT_BTC = 10000000000000; // $1 in BTC
 
     uint public poolId;
     IPoolFactory public factory;
@@ -138,8 +138,6 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     uint public underwriterFee;
     bool public isNewDepositAccepted;
     uint public underwriterFirstLoss;
-
-    uint public minimumStakeAmount;
 
     // Episodes functions
     mapping(uint => Episode) public episodes;
@@ -196,7 +194,6 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
         updatedRewardsAt = block.timestamp;
         minUnderwriterPercentage = minUnderwriterPercentage_;
-        minimumStakeAmount = MINIMUM_STAKE_AMOUNT_BTC;
         bonusPerEpisodeStaked = bonusPerEpisodeStaked_;
         underwriterFee = underwriterFee_;
         underwriterFirstLoss = underwriterFirstLoss_;
@@ -352,7 +349,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         uint amount_,
         uint episodeToStake_
     ) external whenNotPaused returns (bool completed) {
-        require(amount_ >= minimumStakeAmount, "Too small staking amount");
+        require(amount_ >= MINIMUM_STAKE_AMOUNT_BTC, "Too small staking amount");
         require(msg.sender == poolUnderwriter || isNewDepositAccepted, "New deposits are not allowed");
         require(msg.sender != poolUnderwriter || underwriterPositionId == 0, "Underwriter can't have multiple positions");
         require(msg.sender == poolUnderwriter || underwriterPositionId != 0, "There is should be at least one underwriter position");
@@ -582,11 +579,11 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             leftToSlash = amount_ - underwriterBurn;
 
             // Handle corner case: adjust if remaining amount is too small
-            if (leftToSlash < MINIMUM_STAKE_AMOUNT_BTC) {
-                // There shouldn't be such a small claim to trigger overflow
-                underwriterBurn -= MINIMUM_STAKE_AMOUNT_BTC;
-                leftToSlash += MINIMUM_STAKE_AMOUNT_BTC;
-            }
+            // if (leftToSlash < MINIMUM_STAKE_AMOUNT_BTC) {
+            //     // There shouldn't be such a small claim to trigger overflow
+            //     underwriterBurn -= MINIMUM_STAKE_AMOUNT_BTC;
+            //     leftToSlash += MINIMUM_STAKE_AMOUNT_BTC;
+            // }
         }
 
         if (underwriterBurn > 0) {
