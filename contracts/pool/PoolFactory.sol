@@ -36,6 +36,12 @@ contract PoolFactory is
     uint256 public poolCount;
     mapping(uint256 => address) public pools;
 
+    /**
+     * @dev Storage gap to allow for future upgrades
+     * This reserves storage slots for future variables
+     */
+    uint256[50] private __gap;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();

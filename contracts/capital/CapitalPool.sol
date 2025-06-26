@@ -38,6 +38,12 @@ contract CapitalPool is
     mapping(address => uint256) public totalShares;
     mapping(address => uint256) public totalAssets;
 
+    /**
+     * @dev Storage gap to allow for future upgrades
+     * This reserves storage slots for future variables
+     */
+    uint256[50] private __gap;
+
     constructor() {
         _disableInitializers();
     }

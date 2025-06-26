@@ -60,6 +60,12 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
     event ApprovalPeriodChanged(uint256 oldPeriod, uint256 newPeriod);
     event ExecutionTimeoutChanged(uint256 oldTimeout, uint256 newTimeout);
 
+    /**
+     * @dev Storage gap to allow for future upgrades
+     * This reserves storage slots for future variables
+     */
+    uint256[50] private __gap;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
