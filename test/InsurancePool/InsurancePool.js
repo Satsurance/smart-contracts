@@ -293,7 +293,7 @@ describe("InsurancePool", async function () {
       .connect(poolUnderwriter)
       .joinPool(underwriterStakeAmount, episodeToStake5);
 
-    const minimumStakeAmount = await insurancePool.minimumStakeAmount();
+    const minimumStakeAmount = await insurancePool.MINIMUM_STAKE_AMOUNT_BTC();
 
     // Test amount 1 wei below minimum - should fail
     await expect(

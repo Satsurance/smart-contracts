@@ -558,14 +558,14 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         address receiver_,
         uint amount_
     ) external whenNotPaused returns (bool completed) {
-        // TODO: Add product based claim fee
         require(msg.sender == claimer, "Caller is not the claimer");
         _updateEpisodesState();
         uint currentEpisode = getCurrentEpisode();
         PoolStake storage underwriterPosition = positions[underwriterPositionId];
         Episode storage underwriterEpisode = episodes[underwriterPosition.episode];
         uint underwriterStake = underwriterPosition.shares * underwriterEpisode.assetsStaked / underwriterEpisode.episodeShares;
-        uint maxUnderwriterStakeToBurn = (underwriterFirstLoss * totalPoolShares * totalAssetsStaked / totalPoolShares) / BASIS_POINTS;
+        uint totalAssetsStakedWithUnderwriterPosition = currentEpisode > underwriterPosition.episode ? underwriterEpisode.assetsStaked + totalAssetsStaked : totalAssetsStaked;
+        uint maxUnderwriterStakeToBurn = (underwriterFirstLoss * totalAssetsStakedWithUnderwriterPosition) / BASIS_POINTS;
         if(underwriterStake < maxUnderwriterStakeToBurn) {
             maxUnderwriterStakeToBurn = underwriterStake;
         }
@@ -577,13 +577,6 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         if (amount_ > maxUnderwriterStakeToBurn) {
             underwriterBurn = maxUnderwriterStakeToBurn;
             leftToSlash = amount_ - underwriterBurn;
-
-            // Handle corner case: adjust if remaining amount is too small
-            // if (leftToSlash < MINIMUM_STAKE_AMOUNT_BTC) {
-            //     // There shouldn't be such a small claim to trigger overflow
-            //     underwriterBurn -= MINIMUM_STAKE_AMOUNT_BTC;
-            //     leftToSlash += MINIMUM_STAKE_AMOUNT_BTC;
-            // }
         }
 
         if (underwriterBurn > 0) {
@@ -596,6 +589,11 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             if (currentEpisode <= underwriterPosition.episode) {
                 totalAssetsStaked -= underwriterBurn;
                 totalPoolShares -= sharesToBurn;
+            } else {
+                // Make additional slash for the expired underwriter position
+                uint underwriterAdditionalSlash = leftToSlash * underwriterEpisode.assetsStaked / (totalAssetsStaked + underwriterEpisode.assetsStaked);
+                underwriterEpisode.assetsStaked -= underwriterAdditionalSlash;
+                leftToSlash -= underwriterAdditionalSlash;
             }
         }
 
