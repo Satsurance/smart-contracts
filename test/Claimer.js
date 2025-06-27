@@ -13,10 +13,10 @@ describe("Claimer", async function () {
         // Test Constants
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const claimAmount = ethers.parseUnits("10", "ether");
-        const episodeOffset = 23;
+        const episodeOffset = 23n;
         const claimDescription = "Test claim";
 
-        const { btcToken, sursToken, insurancePool, claimer, accounts, deploymentParams } = await loadFixture(
+        const { insurancePool, claimer, accounts, deploymentParams } = await loadFixture(
             basicFixture
         );
         const { owner, poolUnderwriter } = accounts;

@@ -4,7 +4,7 @@ const {
 } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
 const { purchaseCoverage, getCurrentEpisode, expectAllowedUnderstaking } = require("../helpers.js");
 const { basicFixture } = require("../fixtures.js");
-const { ALLOWED_UNDERSTAKING, SECS_IN_DAY } = require("../constants.js");
+const { ALLOWED_UNDERSTAKING, SECS_IN_DAY, EPISODE_DURATION, MINIMUM_STAKE_AMOUNT_BTC } = require("../constants.js");
 
 const { expect } = require("chai");
 
@@ -16,7 +16,7 @@ describe("InsurancePool", async function () {
     const minimumRewardAmount = ethers.parseUnits("0.0000001", "ether"); // 1 cent reward for 100k btc
     const coverageAmountMultiplier = 10n;
     const claimAmount = ethers.parseUnits("3", "ether");
-    const episodeOffset = 23; // episodes from current that satisfies (23 - 0) % 3 == 2
+    const episodeOffset = 23n; // episodes from current that satisfies (23 - 0) % 3 == 2
     const additionalEpisodeDurationMultiplier = 24n;
 
     // Fee and reward calculations
@@ -27,7 +27,7 @@ describe("InsurancePool", async function () {
     const expectedOwnerRewardAmount = (minimumRewardAmount / 11n * rewardPercentage) / 100n;
     const expectedPositionValueAfterSlash = ethers.parseUnits((((110 - 3) / 110) * 10).toString(), "ether");
 
-    const { btcToken, sursToken, insurancePool, claimer, positionNFT, accounts, deploymentParams } = await loadFixture(
+    const { btcToken, insurancePool, claimer, positionNFT, accounts, deploymentParams } = await loadFixture(
       basicFixture
     );
     // Get accounts matching Ignition setup
@@ -80,8 +80,7 @@ describe("InsurancePool", async function () {
     const new_total_shares = await insurancePool.totalPoolShares();
     expectAllowedUnderstaking((init_position.shares * new_total_assets) / new_total_shares, expectedPositionValueAfterSlash, ALLOWED_UNDERSTAKING);
 
-    const episodeDuration = await insurancePool.EPISODE_DURATION();
-    const additionalTimeNeeded = episodeDuration * additionalEpisodeDurationMultiplier;
+    const additionalTimeNeeded = EPISODE_DURATION * additionalEpisodeDurationMultiplier;
 
     const balanceBeforeQuit = await btcToken.balanceOf(owner);
 
@@ -105,17 +104,17 @@ describe("InsurancePool", async function () {
     const purchaseAmount = ethers.parseUnits("1", "ether");
     const coverageAmountMultiplier = 10n;
     const claimAmount = ethers.parseUnits("10", "ether");
-    const episodeOffset = 23;
+    const episodeOffset = 23n;
 
     const rewardPercentage = 85n; // 85% goes to stakers
     const coverageAmount = purchaseAmount * coverageAmountMultiplier;
 
     const expectedRewardAmount = (purchaseAmount * rewardPercentage) / 100n;
 
-    const { btcToken, sursToken, insurancePool, claimer, positionNFT, accounts, deploymentParams } = await loadFixture(
+    const { btcToken, insurancePool, claimer, positionNFT, accounts, deploymentParams } = await loadFixture(
       basicFixture
     );
-    const { owner, poolUnderwriter } = accounts;
+    const { poolUnderwriter } = accounts;
 
     const episodeToStake = await getCurrentEpisode() + episodeOffset;
     await insurancePool
@@ -153,7 +152,7 @@ describe("InsurancePool", async function () {
     const ownerStakeAmount = ethers.parseUnits("0.01", "ether");
     const coveragePurchaseAmount = ethers.parseUnits("1", "ether");
     const coverageAmountMultiplier = 10n;
-    const episodeOffset = 14;
+    const episodeOffset = 14n;
 
     const rewardPercentage = 85n;
     const coverageAmount = coveragePurchaseAmount * coverageAmountMultiplier;
@@ -211,7 +210,7 @@ describe("InsurancePool", async function () {
     const coverageAmountMultiplier = 10n;
     const slashAmount = ethers.parseUnits("0.01", "ether");
     const numIterations = 10;
-    const episodeOffset = 23;
+    const episodeOffset = 23n;
 
     const rewardPercentage = 85n;
     const totalCoveragePurchases = coveragePurchaseAmount * BigInt(numIterations);
@@ -281,7 +280,7 @@ describe("InsurancePool", async function () {
 
   it("test minimum stake amount edge cases", async function () {
     const underwriterStakeAmount = ethers.parseUnits("100", "ether");
-    const episodeOffset = 23;
+    const episodeOffset = 23n;
 
     const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
     const { owner, poolUnderwriter } = accounts;
@@ -293,21 +292,19 @@ describe("InsurancePool", async function () {
       .connect(poolUnderwriter)
       .joinPool(underwriterStakeAmount, episodeToStake5);
 
-    const minimumStakeAmount = await insurancePool.MINIMUM_STAKE_AMOUNT_BTC();
-
     // Test amount 1 wei below minimum - should fail
     await expect(
-      insurancePool.joinPool(minimumStakeAmount - 1n, episodeToStake5)
+      insurancePool.joinPool(MINIMUM_STAKE_AMOUNT_BTC - 1n, episodeToStake5)
     ).to.be.revertedWith("Too small staking amount");
 
     // Test exactly minimum amount
-    await expect(insurancePool.joinPool(minimumStakeAmount, episodeToStake5)).to
+    await expect(insurancePool.joinPool(MINIMUM_STAKE_AMOUNT_BTC, episodeToStake5)).to
       .not.be.reverted;
 
     // Verify position was created correctly
     const ownerPositionId = await positionNFT.tokenOfOwnerByIndex(owner.address, 0);
     const position = await insurancePool.getPoolPosition(ownerPositionId);
-    expect(position.shares).to.equal(minimumStakeAmount);
+    expect(position.shares).to.equal(MINIMUM_STAKE_AMOUNT_BTC);
     expect(position.active).to.be.true;
   });
 
@@ -334,13 +331,12 @@ describe("InsurancePool", async function () {
     const rewardAmount = premiumAmount - protocolFeeAmount;
 
 
-    const episodeDuration = await insurancePool.EPISODE_DURATION();
     const currentEpisode = BigInt(await getCurrentEpisode());
 
     const shortEpisodeToStake = currentEpisode + shortEpisodeOffset;
     const longEpisodeToStake = currentEpisode + longEpisodeOffset;
-    const shortEpisodeFinishTime = (shortEpisodeToStake + 1n) * episodeDuration;
-    const longEpisodeFinishTime = (longEpisodeToStake + 1n) * episodeDuration;
+    const shortEpisodeFinishTime = (shortEpisodeToStake + 1n) * EPISODE_DURATION;
+    const longEpisodeFinishTime = (longEpisodeToStake + 1n) * EPISODE_DURATION;
 
     // Create long-term position
     await insurancePool
@@ -362,7 +358,7 @@ describe("InsurancePool", async function () {
       coverageAmount: coverageAmount,
     });
     const purchaseTime = BigInt(await time.latest());
-    const coverageFinishTime = ((purchaseTime + coverageDuration) / episodeDuration + 1n) * episodeDuration;
+    const coverageFinishTime = ((purchaseTime + coverageDuration) / EPISODE_DURATION + 1n) * EPISODE_DURATION;
 
     const expectedLongReward = rewardAmount * (shortEpisodeFinishTime - purchaseTime) * 1222222222222222222n / ((coverageFinishTime - purchaseTime) * 2222222222222222222n) +
       rewardAmount * (coverageFinishTime - shortEpisodeFinishTime) / (coverageFinishTime - purchaseTime);

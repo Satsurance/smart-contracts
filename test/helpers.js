@@ -12,8 +12,8 @@ const { EPISODE_DURATION } = require("./constants.js");
  * @returns {Promise<number>} The current episode number
  */
 async function getCurrentEpisode(timestamp = null) {
-    const currentTime = timestamp || await time.latest();
-    return Math.floor(currentTime / EPISODE_DURATION);
+    const currentTime = BigInt(timestamp || await time.latest());
+    return currentTime / EPISODE_DURATION;
 }
 
 /**
