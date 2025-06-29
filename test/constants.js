@@ -3,10 +3,12 @@ const SECS_IN_DAY = 60 * 60 * 24;
 const MINIMUM_STAKE_AMOUNT_BTC = ethers.parseUnits("0.00001", "ether"); // 0.00000001 BTC
 // Episode duration matches the contract: 91 days / 3 = ~30.33 days
 const EPISODE_DURATION = 91n * 24n * 60n * 60n / 3n; // 91 days / 3 in seconds
+const BASIS_POINTS = 10000n;
 
 module.exports = {
     ALLOWED_UNDERSTAKING,
     SECS_IN_DAY,
     EPISODE_DURATION,
     MINIMUM_STAKE_AMOUNT_BTC,
+    BASIS_POINTS,
 }; 

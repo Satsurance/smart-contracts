@@ -286,6 +286,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         _updateEpisodesState();
         uint newRewards = _earnedPosition(positionId_);
         positions[positionId_].rewardsCollected += newRewards;
+        positions[positionId_].rewardPerShare = accumulatedRewardRatePerShare;
         return positions[positionId_].rewardsCollected;
     }
 
@@ -312,7 +313,6 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         for(uint i = 0; i < positionsIds_.length; i++) {
             require((positionsIds_[i] == 0 && msg.sender == poolUnderwriter) ||
             (positionNFT.ownerOf(positionsIds_[i]) == msg.sender), "Only position owner can collect rewards");
-            positions[positionsIds_[i]].rewardPerShare = accumulatedRewardRatePerShare;
             positions[positionsIds_[i]].rewardsCollected = 0;
         }
         if (reward > 0) {
@@ -326,6 +326,26 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
     function setUnderwriterFee(uint underwriterFee_) external onlyUnderwriter {
         require(underwriterFee_ <= MAX_UNDERWRITER_FEE, "Underwriter fee too high");
+        _updateEpisodesState();
+
+        // Collect previous rewards
+        positions[0].rewardsCollected += _earnedPosition(0);
+        positions[0].rewardPerShare = accumulatedRewardRatePerShare;
+        
+        // Update rewards shares for active episodes.
+        uint currentEpisode = getCurrentEpisode();
+        for(uint i = currentEpisode; i < currentEpisode + MAX_ACTIVE_EPISODES; i++) {
+            uint sharesToRemove = episodes[i].rewardShares * underwriterFee / BASIS_POINTS;
+            episodes[i].rewardShares -= sharesToRemove;
+            
+            uint sharesToAdd = episodes[i].rewardShares * underwriterFee_ / (BASIS_POINTS - underwriterFee_);
+
+            positions[0].rewardShares -= sharesToRemove;
+            positions[0].rewardShares += sharesToAdd;
+            totalRewardShares -= sharesToRemove;
+            totalRewardShares += sharesToAdd;
+        }
+
         underwriterFee = underwriterFee_;
     }
 
@@ -363,7 +383,8 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
         uint newPositionId = positionNFT.mintPositionNFT(msg.sender, uint64(poolId));
         uint newShares = totalPoolShares == 0 ? amount_ : (amount_ * totalPoolShares) / totalAssetsStaked;
-        uint newRewardShares = newShares + newShares * (episodeToStake_ - currentEpisode - 2) * bonusPerEpisodeStaked / BASIS_POINTS;
+
+        uint newRewardShares = newShares + (newShares * (episodeToStake_ - currentEpisode - 2) * bonusPerEpisodeStaked )/ BASIS_POINTS;
         require(msg.sender == poolUnderwriter || newShares <= maxSharesUserToStake(), "Underwriter position can't be less than allowed");
         if(msg.sender == poolUnderwriter) {
             underwriterPositionId = newPositionId;
