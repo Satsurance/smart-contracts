@@ -127,7 +127,7 @@ contract CoverNFT is
     }
 
     /**
-     * @dev Burn a cover NFT - can only be called by the NFT holder if cover has expired
+     * @dev Burns a cover NFT - can only be called by the NFT holder if cover has expired
      * @param coverId The ID of the cover NFT to burn
      * @return True if successful
      */

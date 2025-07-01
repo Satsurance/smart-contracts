@@ -27,4 +27,11 @@ interface ICoverNFT {
         uint64 endDate,
         uint64 poolId
     ) external;
+
+    /**
+     * @dev Get cover details for a given cover ID
+     * @param coverId The ID of the cover to retrieve
+     * @return The Cover struct containing cover details
+     */
+    function getCover(uint256 coverId) external view returns (Cover memory);
 }

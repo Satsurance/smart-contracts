@@ -263,23 +263,29 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     }
 
     function _updateProductAllocation(Product storage product) internal  {
+        product.allocation = _computeCurrentProductAllocation(product);
+        product.lastAllocationUpdate = block.timestamp;
+    }
+
+    function _computeCurrentProductAllocation(Product storage product) internal view returns (uint) {
         uint lastUpdatedEpisode = product.lastAllocationUpdate / EPISODE_DURATION;
         uint currentEpisode = getCurrentEpisode();
+        
         if(lastUpdatedEpisode == currentEpisode) {
-            return;
+            return product.allocation;
         }
+        
         // If the last update is more than MAX_ACTIVE_EPISODES, all the coverages are expired
         if (currentEpisode - MAX_ACTIVE_EPISODES > lastUpdatedEpisode) {
-            product.allocation = 0;
-            product.lastAllocationUpdate = block.timestamp;
-            return;
+            return 0;
         }
+        
         uint allocationCut = 0;
         for(uint i = lastUpdatedEpisode; i <= currentEpisode; i++) {
             allocationCut += episodeAllocationCut[product.productId][i];
         }
-        product.allocation -= allocationCut;
-        product.lastAllocationUpdate = block.timestamp;
+        
+        return product.allocation - allocationCut;
     }
 
     function earnedPosition(uint positionId_) public returns (uint) {
@@ -651,12 +657,12 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         uint currentEpisode = getCurrentEpisode();
         for(uint i = startEpisode_; i < currentEpisode + MAX_ACTIVE_EPISODES; i++) {
             Episode storage episode = episodes[i];
-            availableAllocation += episode.episodeShares * totalAssetsStaked / totalPoolShares; // Include capital pool income
+            availableAllocation += (episode.episodeShares * totalAssetsStaked) / totalPoolShares; // Include capital pool income
             if(availableAllocation >= requestedAllocation_) {
                 return true;
             }
         }
-        return true;
+        return false;
     }
 
     function purchaseCover(
