@@ -330,4 +330,51 @@ describe("ExtendPosition", async function () {
         expect(underwriterPositionAmount).to.equal(underwriterStakeAmount);
         expect(totalAssets).to.equal(userStakeAmount + underwriterStakeAmount + additionalDeposit);
     });
+
+    it("should not be possible to extend with too small underwriter shares with withdraw amount", async function () {
+        const underwriterStakeAmount = ethers.parseUnits("100", "ether");
+        const userStakeAmount = ethers.parseUnits("100", "ether");
+        const withdrawAmountToPass = ethers.parseUnits("90", "ether");
+        const withdrawAmountToFail = withdrawAmountToPass + 1n;
+        const shortEpisodeOffset = 2n;
+        const extendedEpisodeOffset = 23n;
+
+        const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
+        const { owner, poolUnderwriter } = accounts;
+
+        const currentEpisode = BigInt(await getCurrentEpisode());
+        const shortEpisodeToStake = currentEpisode + shortEpisodeOffset;
+        const extendedEpisodeToStake = currentEpisode + extendedEpisodeOffset;
+
+        // Create underwriter position first, this one will expire
+        await insurancePool
+            .connect(poolUnderwriter)
+            .joinPool(underwriterStakeAmount, shortEpisodeToStake);
+
+        // Create user position that will not expire
+        await insurancePool.connect(owner).joinPool(userStakeAmount, extendedEpisodeToStake);
+
+        const underwriterPositionId = await positionNFT.tokenOfOwnerByIndex(poolUnderwriter.address, 0);
+
+        // Advance time to make the underwriter's position expire
+        const episodeDuration = await insurancePool.EPISODE_DURATION();
+        const positionExpiryTime = (shortEpisodeToStake + 1n) * episodeDuration;
+        await time.increaseTo(positionExpiryTime + 1n);
+
+        // Test extending expired position with withdrawal that makes stake too small
+        await expect(insurancePool.connect(poolUnderwriter).extendPoolPosition(
+            underwriterPositionId,
+            extendedEpisodeToStake,
+            withdrawAmountToFail,
+            0 // amountToDeposit
+        )).to.be.revertedWith("Underwriter position can't be less than allowed");
+
+        // Test extending expired position will not fail if underwriter shares are enough
+        await insurancePool.connect(poolUnderwriter).extendPoolPosition(
+            underwriterPositionId,
+            extendedEpisodeToStake,
+            withdrawAmountToPass,
+            0 // amountToDeposit
+        )
+    });
 }); 
