@@ -463,8 +463,6 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         PoolStake storage position = positions[positionId_];
         Episode storage previouslyDepositedEpisode = episodes[position.episode];
         uint sharesToWithdraw = withdrawAmount_ * previouslyDepositedEpisode.episodeShares / previouslyDepositedEpisode.assetsStaked;
-                console.log("sharesToWithdraw", sharesToWithdraw);
-        console.log("maxUnderwriterSharesToUnstake", maxUnderwriterSharesToUnstake());
         require(position.episode <= episodeToStake_, "It is not allowed to extend into a earlier episode");
         require(msg.sender != poolUnderwriter || sharesToWithdraw <= maxUnderwriterSharesToUnstake(), "Underwriter position can't be less than allowed");
         require(position.episode < currentEpisode || sharesToWithdraw == 0, "It is possible to withdraw on extend only for the expired positions");
