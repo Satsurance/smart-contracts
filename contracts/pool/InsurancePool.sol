@@ -360,15 +360,24 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         if(minUnderwriterPercentage == 0) {
             return type(uint).max;
         }
-        return (positions[underwriterPositionId].shares * BASIS_POINTS)/minUnderwriterPercentage - totalPoolShares;
+        uint maxShares = (positions[underwriterPositionId].shares * BASIS_POINTS)/minUnderwriterPercentage - totalPoolShares;
+        if(positions[underwriterPositionId].episode < getCurrentEpisode()) {
+            maxShares -= positions[underwriterPositionId].shares;
+        }
+        return maxShares;
     }
 
     // Underwriter's part of the stake can't be less than 10%
     function maxUnderwriterSharesToUnstake() public view returns(uint) {
-        if(minUnderwriterPercentage == 0) {
+        if(minUnderwriterPercentage == BASIS_POINTS) {
             return type(uint).max;
         }
-        return positions[underwriterPositionId].shares - (totalPoolShares * minUnderwriterPercentage)/BASIS_POINTS;
+        uint _totalPoolShares = totalPoolShares;
+        if(positions[underwriterPositionId].episode < getCurrentEpisode()){
+            _totalPoolShares += positions[underwriterPositionId].shares;
+        }
+        
+        return (positions[underwriterPositionId].shares * BASIS_POINTS - minUnderwriterPercentage * _totalPoolShares) / (BASIS_POINTS - minUnderwriterPercentage);
     }
 
     function joinPool(
@@ -454,6 +463,8 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         PoolStake storage position = positions[positionId_];
         Episode storage previouslyDepositedEpisode = episodes[position.episode];
         uint sharesToWithdraw = withdrawAmount_ * previouslyDepositedEpisode.episodeShares / previouslyDepositedEpisode.assetsStaked;
+                console.log("sharesToWithdraw", sharesToWithdraw);
+        console.log("maxUnderwriterSharesToUnstake", maxUnderwriterSharesToUnstake());
         require(position.episode <= episodeToStake_, "It is not allowed to extend into a earlier episode");
         require(msg.sender != poolUnderwriter || sharesToWithdraw <= maxUnderwriterSharesToUnstake(), "Underwriter position can't be less than allowed");
         require(position.episode < currentEpisode || sharesToWithdraw == 0, "It is possible to withdraw on extend only for the expired positions");
