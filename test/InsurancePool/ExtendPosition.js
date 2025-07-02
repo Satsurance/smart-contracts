@@ -336,6 +336,7 @@ describe("ExtendPosition", async function () {
         const userStakeAmount = ethers.parseUnits("100", "ether");
         const withdrawAmountToPass = ethers.parseUnits("90", "ether");
         const withdrawAmountToFail = withdrawAmountToPass + 1n;
+
         const shortEpisodeOffset = 2n;
         const extendedEpisodeOffset = 23n;
 
@@ -375,6 +376,59 @@ describe("ExtendPosition", async function () {
             extendedEpisodeToStake,
             withdrawAmountToPass,
             0 // amountToDeposit
-        )
+        );
+    });
+
+    it("should not be possible to extend with more shares than allowed by minimum underwriter limits", async function () {
+        const underwriterStakeAmount = ethers.parseUnits("10", "ether"); // Small underwriter stake
+        const userStakeAmount = ethers.parseUnits("10", "ether");
+        const initialEpisodeOffset = 5n;
+        const extendedEpisodeOffset = 23n;
+
+        const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
+        const { owner, poolUnderwriter } = accounts;
+
+        const currentEpisode = BigInt(await getCurrentEpisode());
+        const initialEpisodeToStake = currentEpisode + initialEpisodeOffset;
+        const extendedEpisodeToStake = currentEpisode + extendedEpisodeOffset;
+
+        // Create small underwriter position first
+        await insurancePool
+            .connect(poolUnderwriter)
+            .joinPool(underwriterStakeAmount, initialEpisodeToStake);
+
+        // Create user position
+        await insurancePool.connect(owner).joinPool(userStakeAmount, initialEpisodeToStake);
+        const ownerPositionId = await positionNFT.tokenOfOwnerByIndex(owner.address, 0);
+
+        // Calculate the maximum additional deposit allowed
+        const additionalDepositToPass = await insurancePool.maxSharesUserToStake();
+        const additionalDepositToFail = additionalDepositToPass + 1n;
+
+        // Test that extending with too many additional shares fails
+        await expect(
+            insurancePool.connect(owner).extendPoolPosition(
+                ownerPositionId,
+                extendedEpisodeToStake,
+                0, // withdrawAmount
+                additionalDepositToFail
+            )
+        ).to.be.revertedWith("Underwriter position can't be less than allowed");
+
+        // Test that extending with the maximum allowed additional shares succeeds
+        await insurancePool.connect(owner).extendPoolPosition(
+            ownerPositionId,
+            extendedEpisodeToStake,
+            0, // withdrawAmount
+            additionalDepositToPass // This should be exactly at the limit
+        );
+
+        // Verify that the underwriter percentage constraint is satisfied
+        const totalPoolShares = await insurancePool.totalPoolShares();
+        const underwriterPositionId = await positionNFT.tokenOfOwnerByIndex(poolUnderwriter.address, 0);
+        const underwriterPosition = await insurancePool.getPoolPosition(underwriterPositionId);
+        const underwriterPercentage = (underwriterPosition.shares * 10000n) / totalPoolShares;
+        const minUnderwriterPercentage = await insurancePool.minUnderwriterPercentage();
+        expect(underwriterPercentage).to.be.equals(minUnderwriterPercentage);
     });
 }); 
