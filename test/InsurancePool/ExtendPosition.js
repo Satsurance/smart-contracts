@@ -12,7 +12,7 @@ describe("ExtendPosition", async function () {
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const userStakeAmount = ethers.parseUnits("10", "ether");
         const additionalDeposit = ethers.parseUnits("5", "ether");
-        const initialEpisodeOffset = 2n;
+        const initialEpisodeOffset = 5n;
         const extendedEpisodeOffset = 23n;
 
         const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
@@ -60,25 +60,15 @@ describe("ExtendPosition", async function () {
             )
         ).to.be.revertedWith("It is only possible to deposit or withdraw, not both");
 
-        // Verify that extending to the same episode fails
-        await expect(
-            insurancePool.connect(owner).extendPoolPosition(
-                ownerPositionId,
-                initialEpisodeToStake,
-                0,
-                0
-            )
-        ).to.be.revertedWith("It is allowed to extend into a later episode");
-
         // Test extending to earlier episode should fail
         await expect(
             insurancePool.connect(owner).extendPoolPosition(
                 ownerPositionId,
-                initialEpisodeToStake,
+                initialEpisodeToStake - 3n,
                 0,
                 0
             )
-        ).to.be.revertedWith("It is allowed to extend into a later episode");
+        ).to.be.revertedWith("It is not allowed to extend into a earlier episode");
 
         // Test that withdrawal is not allowed during extension from active position
         await expect(
@@ -243,10 +233,11 @@ describe("ExtendPosition", async function () {
         await insurancePool
             .connect(poolUnderwriter)
             .joinPool(underwriterStakeAmount, extendedEpisodeToStake);
+        const underwriterPositionId = await positionNFT.tokenOfOwnerByIndex(poolUnderwriter, 0);
 
         // Create user position that will expire soon
         await insurancePool.connect(owner).joinPool(userStakeAmount, shortEpisodeToStake);
-        const ownerPositionId = await positionNFT.tokenOfOwnerByIndex(owner.address, 0);
+        const ownerPositionId = await positionNFT.tokenOfOwnerByIndex(owner, 0);
 
         // Get initial position state
         const initialPosition = await insurancePool.getPoolPosition(ownerPositionId);
@@ -272,5 +263,71 @@ describe("ExtendPosition", async function () {
         expect(extendedPosition.episode).to.equal(extendedEpisodeToStake);
         expect(extendedPosition.active).to.be.true;
         expect(extendedPosition.shares).to.equal(userStakeAmount + additionalDeposit);
+
+        // Verify assets accounted correctly
+        const totalAssets = await insurancePool.totalAssetsStaked();
+        const totalShares = await insurancePool.totalPoolShares();
+        const underwriterPosition = await insurancePool.getPoolPosition(underwriterPositionId);
+        const underwriterPositionAmount = (underwriterPosition.shares * totalAssets) / totalShares;
+        const userPositionAmount = (extendedPosition.shares * totalAssets) / totalShares;
+        expect(userPositionAmount).to.equal(userStakeAmount + additionalDeposit);
+        expect(underwriterPositionAmount).to.equal(underwriterStakeAmount);
+        expect(totalAssets).to.equal(userStakeAmount + underwriterStakeAmount + additionalDeposit);
+    });
+
+    it("should be possible to extend to the same position by adding new shares", async function () {
+        const underwriterStakeAmount = ethers.parseUnits("100", "ether");
+        const userStakeAmount = ethers.parseUnits("10", "ether");
+        const additionalDeposit = ethers.parseUnits("5", "ether");
+        const initialEpisodeOffset = 2n;
+
+        const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
+        const { owner, poolUnderwriter } = accounts;
+
+        const currentEpisode = BigInt(await getCurrentEpisode());
+        const initialEpisodeToStake = currentEpisode + initialEpisodeOffset;
+
+        // Create underwriter position first
+        await insurancePool
+            .connect(poolUnderwriter)
+            .joinPool(underwriterStakeAmount, initialEpisodeToStake);
+
+        // Create user position
+        await insurancePool.connect(owner).joinPool(userStakeAmount, initialEpisodeToStake);
+        const ownerPositionId = await positionNFT.tokenOfOwnerByIndex(owner.address, 0);
+
+        // Get initial position state
+        const initialPosition = await insurancePool.getPoolPosition(ownerPositionId);
+        expect(initialPosition.episode).to.equal(initialEpisodeToStake);
+        expect(initialPosition.shares).to.equal(userStakeAmount);
+        expect(initialPosition.active).to.be.true;
+
+        // Test extending position with additional deposit to the same episode
+        await insurancePool.connect(owner).extendPoolPosition(
+            ownerPositionId,
+            initialEpisodeToStake,
+            0, // withdrawAmount
+            additionalDeposit // amountToDeposit
+        );
+
+        // Verify position was extended correctly
+        const extendedPosition = await insurancePool.getPoolPosition(ownerPositionId);
+        expect(extendedPosition.episode).to.equal(initialEpisodeToStake);
+        expect(extendedPosition.active).to.be.true;
+
+        // Verify exact share amounts - should be initial stake + additional deposit
+        const expectedTotalShares = userStakeAmount + additionalDeposit;
+        expect(extendedPosition.shares).to.equal(expectedTotalShares);
+
+        // Verify assets accounted correctly
+        const totalAssets = await insurancePool.totalAssetsStaked();
+        const totalShares = await insurancePool.totalPoolShares();
+        const underwriterPositionId = await positionNFT.tokenOfOwnerByIndex(poolUnderwriter.address, 0);
+        const underwriterPosition = await insurancePool.getPoolPosition(underwriterPositionId);
+        const underwriterPositionAmount = (underwriterPosition.shares * totalAssets) / totalShares;
+        const userPositionAmount = (extendedPosition.shares * totalAssets) / totalShares;
+        expect(userPositionAmount).to.equal(userStakeAmount + additionalDeposit);
+        expect(underwriterPositionAmount).to.equal(underwriterStakeAmount);
+        expect(totalAssets).to.equal(userStakeAmount + underwriterStakeAmount + additionalDeposit);
     });
 }); 
