@@ -29,7 +29,6 @@ describe("PurchaseCoverage", function () {
 
         // Get initial states
         const initialCoverNFTSupply = await coverNFT.totalSupply();
-        const initialTotalCoverAllocation = await insurancePool.totalCoverAllocation();
 
         expect(await insurancePool.totalCoverAllocation()).to.equal(0);
         const product = await insurancePool.products(0);
