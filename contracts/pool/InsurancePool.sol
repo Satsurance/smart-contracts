@@ -488,7 +488,6 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
             uint newShares = totalPoolShares == 0 ? amountToDeposit_ + movedAssets : ((amountToDeposit_ + movedAssets) * totalPoolShares) / totalAssetsStaked;
             require(msg.sender == poolUnderwriter || newShares <= maxSharesUserToStake(), "Underwriter position can't be less than allowed");
-
             newRewardShares = newShares + newShares * (episodeToStake_ - currentEpisode - 2) * bonusPerEpisodeStaked / BASIS_POINTS;
             position.shares = newShares;
             position.rewardShares = newRewardShares;
@@ -522,7 +521,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
         // Update new target episode
         Episode storage targetEpisode = episodes[episodeToStake_];
-        targetEpisode.assetsStaked += positionAssets;
+        targetEpisode.assetsStaked += positionAssets + amountToDeposit_;
         targetEpisode.episodeShares += position.shares;
         targetEpisode.rewardShares += position.rewardShares;
 
