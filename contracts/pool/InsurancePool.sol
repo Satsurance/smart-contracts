@@ -51,10 +51,7 @@ event GlobalSettingsUpdated(
     uint protocolFee
 );
 
-event GuardianUpdated(
-    address indexed oldGuardian,
-    address indexed newGuardian
-);
+event GuardianUpdated(address indexed oldGuardian, address indexed newGuardian);
 
 event PoolPositionExtended(
     address indexed user,
@@ -173,7 +170,10 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         uint underwriterFee_,
         uint underwriterFirstLoss_
     ) public initializer {
-        require(underwriterFee_ <= MAX_UNDERWRITER_FEE, "Underwriter fee too high");
+        require(
+            underwriterFee_ <= MAX_UNDERWRITER_FEE,
+            "Underwriter fee too high"
+        );
 
         __Ownable_init(governor_);
         __Pausable_init();
@@ -199,8 +199,11 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         underwriterFirstLoss = underwriterFirstLoss_;
     }
 
-    function updateClaimer(address newClaimer_) onlyOwner external {
-        require(newClaimer_ != address(0), "New claimer cannot be zero address");
+    function updateClaimer(address newClaimer_) external onlyOwner {
+        require(
+            newClaimer_ != address(0),
+            "New claimer cannot be zero address"
+        );
         claimer = newClaimer_;
     }
 
@@ -210,21 +213,23 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         protocolFee = protocolSettings.protocolFee();
         require(protocolFee <= MAX_PROTOCOL_FEE, "Protocol fee too high");
 
-        emit GlobalSettingsUpdated(
-            protocolRewardsAddress,
-            protocolFee
-        );
+        emit GlobalSettingsUpdated(protocolRewardsAddress, protocolFee);
     }
 
-    function rewardRatePerShare(uint updatedRewardsAt_, uint finishTime_) public view returns (uint) {
-        if(totalAssetsStaked == 0 || totalPoolShares == 0) {
+    function rewardRatePerShare(
+        uint updatedRewardsAt_,
+        uint finishTime_
+    ) public view returns (uint) {
+        if (totalAssetsStaked == 0 || totalPoolShares == 0) {
             return poolRewardRate;
         }
-        return (poolRewardRate * (finishTime_ - updatedRewardsAt_) * 1e18)/totalRewardShares;
+        return
+            (poolRewardRate * (finishTime_ - updatedRewardsAt_) * 1e18) /
+            totalRewardShares;
     }
 
     function _updateEpisodesState() internal {
-        if(block.timestamp == updatedRewardsAt) {
+        if (block.timestamp == updatedRewardsAt) {
             return;
         }
         uint currentEpisode = getCurrentEpisode();
@@ -235,21 +240,28 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         for (uint i = lastUpdatedEpisode; i < currentEpisode; i++) {
             uint prevEpisodeFinishTime = getEpisodeFinishTime(i);
 
-            accumulatedRewardRatePerShare += rewardRatePerShare(updatedRewardsAt_, prevEpisodeFinishTime);
+            accumulatedRewardRatePerShare += rewardRatePerShare(
+                updatedRewardsAt_,
+                prevEpisodeFinishTime
+            );
             updatedRewardsAt_ = prevEpisodeFinishTime;
             poolRewardRate -= episodes[i + 1].rewardDecrease;
 
-
             // Set for the expiring episode
-            episodes[i].accRewardPerShareOnExpire = accumulatedRewardRatePerShare;
-            if(episodes[i].episodeShares > 0) {
-                episodes[i].assetsStaked = episodes[i].episodeShares * totalAssetsStaked / totalPoolShares; // Includes capital pool rewards
+            episodes[i]
+                .accRewardPerShareOnExpire = accumulatedRewardRatePerShare;
+            if (episodes[i].episodeShares > 0) {
+                episodes[i].assetsStaked =
+                    (episodes[i].episodeShares * totalAssetsStaked) /
+                    totalPoolShares; // Includes capital pool rewards
                 capitalPool.onHold(poolId, episodes[i].assetsStaked);
             }
 
             // Collect underwriter fee
             positions[0].rewardsCollected += _earnedPosition(0);
-            positions[0].rewardShares -= episodes[i].rewardShares * underwriterFee / BASIS_POINTS;
+            positions[0].rewardShares -=
+                (episodes[i].rewardShares * underwriterFee) /
+                BASIS_POINTS;
             positions[0].rewardPerShare = accumulatedRewardRatePerShare;
 
             // Remove expired episode from total pool count
@@ -258,28 +270,40 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             totalCoverAllocation -= episodes[i].coverageDecrease;
             totalRewardShares -= episodes[i].rewardShares;
         }
-        accumulatedRewardRatePerShare += rewardRatePerShare(updatedRewardsAt_, block.timestamp);
+        accumulatedRewardRatePerShare += rewardRatePerShare(
+            updatedRewardsAt_,
+            block.timestamp
+        );
         updatedRewardsAt = block.timestamp;
     }
 
-    function _updateProductAllocation(Product storage product) internal  {
-        uint lastUpdatedEpisode = product.lastAllocationUpdate / EPISODE_DURATION;
+    function _updateProductAllocation(Product storage product) internal {
+        product.allocation = _computeCurrentProductAllocation(product);
+        product.lastAllocationUpdate = block.timestamp;
+    }
+
+    function _computeCurrentProductAllocation(
+        Product storage product
+    ) internal view returns (uint) {
+        uint lastUpdatedEpisode = product.lastAllocationUpdate /
+            EPISODE_DURATION;
         uint currentEpisode = getCurrentEpisode();
-        if(lastUpdatedEpisode == currentEpisode) {
-            return;
+
+        if (lastUpdatedEpisode == currentEpisode) {
+            return product.allocation;
         }
+
         // If the last update is more than MAX_ACTIVE_EPISODES, all the coverages are expired
         if (currentEpisode - MAX_ACTIVE_EPISODES > lastUpdatedEpisode) {
-            product.allocation = 0;
-            product.lastAllocationUpdate = block.timestamp;
-            return;
+            return 0;
         }
+
         uint allocationCut = 0;
-        for(uint i = lastUpdatedEpisode; i <= currentEpisode; i++) {
+        for (uint i = lastUpdatedEpisode; i <= currentEpisode; i++) {
             allocationCut += episodeAllocationCut[product.productId][i];
         }
-        product.allocation -= allocationCut;
-        product.lastAllocationUpdate = block.timestamp;
+
+        return product.allocation - allocationCut;
     }
 
     function earnedPosition(uint positionId_) public returns (uint) {
@@ -293,26 +317,38 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     function _earnedPosition(uint positionId_) internal view returns (uint) {
         PoolStake storage position = positions[positionId_];
         uint reward = 0;
-        uint rewardPerShare = position.episode < getCurrentEpisode() ?  episodes[position.episode].accRewardPerShareOnExpire : accumulatedRewardRatePerShare;
-        reward = (position.rewardShares * (rewardPerShare - position.rewardPerShare)) / 1e18;
+        uint rewardPerShare = position.episode < getCurrentEpisode()
+            ? episodes[position.episode].accRewardPerShareOnExpire
+            : accumulatedRewardRatePerShare;
+        reward =
+            (position.rewardShares *
+                (rewardPerShare - position.rewardPerShare)) /
+            1e18;
         return reward;
     }
 
-    function earnedPositions(uint[] memory positionsIds_) public returns (uint reward) {
-        for(uint i = 0; i < positionsIds_.length; i++) {
+    function earnedPositions(
+        uint[] memory positionsIds_
+    ) public returns (uint reward) {
+        for (uint i = 0; i < positionsIds_.length; i++) {
             reward += earnedPosition(positionsIds_[i]);
         }
     }
 
-    function getPoolPosition(uint positionId_) external view returns (PoolStake memory position) {
+    function getPoolPosition(
+        uint positionId_
+    ) external view returns (PoolStake memory position) {
         return positions[positionId_];
     }
 
     function collectRewards(uint[] memory positionsIds_) external {
         uint reward = earnedPositions(positionsIds_);
-        for(uint i = 0; i < positionsIds_.length; i++) {
-            require((positionsIds_[i] == 0 && msg.sender == poolUnderwriter) ||
-            (positionNFT.ownerOf(positionsIds_[i]) == msg.sender), "Only position owner can collect rewards");
+        for (uint i = 0; i < positionsIds_.length; i++) {
+            require(
+                (positionsIds_[i] == 0 && msg.sender == poolUnderwriter) ||
+                    (positionNFT.ownerOf(positionsIds_[i]) == msg.sender),
+                "Only position owner can collect rewards"
+            );
             positions[positionsIds_[i]].rewardsCollected = 0;
         }
         if (reward > 0) {
@@ -320,25 +356,36 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         }
     }
 
-    function setNewDepositsFlag(bool isNewDepositAccepted_) external onlyUnderwriter {
+    function setNewDepositsFlag(
+        bool isNewDepositAccepted_
+    ) external onlyUnderwriter {
         isNewDepositAccepted = isNewDepositAccepted_;
     }
 
     function setUnderwriterFee(uint underwriterFee_) external onlyUnderwriter {
-        require(underwriterFee_ <= MAX_UNDERWRITER_FEE, "Underwriter fee too high");
+        require(
+            underwriterFee_ <= MAX_UNDERWRITER_FEE,
+            "Underwriter fee too high"
+        );
         _updateEpisodesState();
 
         // Collect previous rewards
         positions[0].rewardsCollected += _earnedPosition(0);
         positions[0].rewardPerShare = accumulatedRewardRatePerShare;
-        
+
         // Update rewards shares for active episodes.
         uint currentEpisode = getCurrentEpisode();
-        for(uint i = currentEpisode; i < currentEpisode + MAX_ACTIVE_EPISODES; i++) {
-            uint sharesToRemove = episodes[i].rewardShares * underwriterFee / BASIS_POINTS;
+        for (
+            uint i = currentEpisode;
+            i < currentEpisode + MAX_ACTIVE_EPISODES;
+            i++
+        ) {
+            uint sharesToRemove = (episodes[i].rewardShares * underwriterFee) /
+                BASIS_POINTS;
             episodes[i].rewardShares -= sharesToRemove;
-            
-            uint sharesToAdd = episodes[i].rewardShares * underwriterFee_ / (BASIS_POINTS - underwriterFee_);
+
+            uint sharesToAdd = (episodes[i].rewardShares * underwriterFee_) /
+                (BASIS_POINTS - underwriterFee_);
 
             positions[0].rewardShares -= sharesToRemove;
             positions[0].rewardShares += sharesToAdd;
@@ -350,49 +397,97 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     }
 
     // Underwriter's part of the stake can't be less than 10%
-    function maxSharesUserToStake() public view returns(uint) {
-        if(minUnderwriterPercentage == 0) {
+    function maxSharesUserToStake() public view returns (uint) {
+        if (minUnderwriterPercentage == 0) {
             return type(uint).max;
         }
-        return (positions[underwriterPositionId].shares * BASIS_POINTS)/minUnderwriterPercentage - totalPoolShares;
+        uint maxShares = (positions[underwriterPositionId].shares *
+            BASIS_POINTS) /
+            minUnderwriterPercentage -
+            totalPoolShares;
+        if (positions[underwriterPositionId].episode < getCurrentEpisode()) {
+            maxShares -= positions[underwriterPositionId].shares;
+        }
+        return maxShares;
     }
 
     // Underwriter's part of the stake can't be less than 10%
-    function maxUnderwriterSharesToUnstake() public view returns(uint) {
-        if(minUnderwriterPercentage == 0) {
+    function maxUnderwriterSharesToUnstake() public view returns (uint) {
+        if (minUnderwriterPercentage == BASIS_POINTS) {
             return type(uint).max;
         }
-        return positions[underwriterPositionId].shares - (totalPoolShares * minUnderwriterPercentage)/BASIS_POINTS;
+        uint _totalPoolShares = totalPoolShares;
+        if (positions[underwriterPositionId].episode < getCurrentEpisode()) {
+            _totalPoolShares += positions[underwriterPositionId].shares;
+        }
+
+        return
+            (positions[underwriterPositionId].shares *
+                BASIS_POINTS -
+                minUnderwriterPercentage *
+                _totalPoolShares) / (BASIS_POINTS - minUnderwriterPercentage);
     }
 
     function joinPool(
         uint amount_,
         uint episodeToStake_
     ) external whenNotPaused returns (bool completed) {
-        require(amount_ >= MINIMUM_STAKE_AMOUNT_BTC, "Too small staking amount");
-        require(msg.sender == poolUnderwriter || isNewDepositAccepted, "New deposits are not allowed");
-        require(msg.sender != poolUnderwriter || underwriterPositionId == 0, "Underwriter can't have multiple positions");
-        require(msg.sender == poolUnderwriter || underwriterPositionId != 0, "There is should be at least one underwriter position");
+        require(
+            amount_ >= MINIMUM_STAKE_AMOUNT_BTC,
+            "Too small staking amount"
+        );
+        require(
+            msg.sender == poolUnderwriter || isNewDepositAccepted,
+            "New deposits are not allowed"
+        );
+        require(
+            msg.sender != poolUnderwriter || underwriterPositionId == 0,
+            "Underwriter can't have multiple positions"
+        );
+        require(
+            msg.sender == poolUnderwriter || underwriterPositionId != 0,
+            "There is should be at least one underwriter position"
+        );
 
         uint currentEpisode = getCurrentEpisode();
-        require(episodeToStake_ < currentEpisode + MAX_ACTIVE_EPISODES, "Too long staking time");
+        require(
+            episodeToStake_ < currentEpisode + MAX_ACTIVE_EPISODES,
+            "Too long staking time"
+        );
         require(episodeToStake_ >= currentEpisode, "Outdated episode to stake");
-        require((episodeToStake_ - currentEpisode) % 3 == 2, "Staking episode must be a multiple of 3");
+        require(
+            (episodeToStake_ - currentEpisode) % 3 == 2,
+            "Staking episode must be a multiple of 3"
+        );
 
         _updateEpisodesState();
 
-        uint newPositionId = positionNFT.mintPositionNFT(msg.sender, uint64(poolId));
-        uint newShares = totalPoolShares == 0 ? amount_ : (amount_ * totalPoolShares) / totalAssetsStaked;
+        uint newPositionId = positionNFT.mintPositionNFT(
+            msg.sender,
+            uint64(poolId)
+        );
+        uint newShares = totalPoolShares == 0
+            ? amount_
+            : (amount_ * totalPoolShares) / totalAssetsStaked;
 
-        uint newRewardShares = newShares + (newShares * (episodeToStake_ - currentEpisode - 2) * bonusPerEpisodeStaked )/ BASIS_POINTS;
-        require(msg.sender == poolUnderwriter || newShares <= maxSharesUserToStake(), "Underwriter position can't be less than allowed");
-        if(msg.sender == poolUnderwriter) {
+        uint newRewardShares = newShares +
+            (newShares *
+                (episodeToStake_ - currentEpisode - 2) *
+                bonusPerEpisodeStaked) /
+            BASIS_POINTS;
+        require(
+            msg.sender == poolUnderwriter ||
+                newShares <= maxSharesUserToStake(),
+            "Underwriter position can't be less than allowed"
+        );
+        if (msg.sender == poolUnderwriter) {
             underwriterPositionId = newPositionId;
             positions[0].episode = type(uint).max;
         }
 
         {
-            uint underwriterRewardShares = (newRewardShares * underwriterFee) / (BASIS_POINTS - underwriterFee);
+            uint underwriterRewardShares = (newRewardShares * underwriterFee) /
+                (BASIS_POINTS - underwriterFee);
             positions[newPositionId] = PoolStake({
                 episode: episodeToStake_,
                 shares: newShares,
@@ -432,25 +527,57 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         return true;
     }
 
-
-    function extendPoolPosition(uint positionId_, uint episodeToStake_, uint withdrawAmount_, uint amountToDeposit_) external whenNotPaused returns (bool) {
-        require(msg.sender == positionNFT.ownerOf(positionId_), "Only position owner can extend");
-        require(msg.sender == poolUnderwriter || isNewDepositAccepted, "Extended deposits are not allowed");
-        require((amountToDeposit_ == 0 && withdrawAmount_ >= 0)||(amountToDeposit_ > 0 && withdrawAmount_ == 0), "It is only possible to deposit or withdraw, not both");
+    function extendPoolPosition(
+        uint positionId_,
+        uint episodeToStake_,
+        uint withdrawAmount_,
+        uint amountToDeposit_
+    ) external whenNotPaused returns (bool) {
+        require(
+            msg.sender == positionNFT.ownerOf(positionId_),
+            "Only position owner can extend"
+        );
+        require(
+            msg.sender == poolUnderwriter || isNewDepositAccepted,
+            "Extended deposits are not allowed"
+        );
+        require(
+            (amountToDeposit_ == 0 && withdrawAmount_ >= 0) ||
+                (amountToDeposit_ > 0 && withdrawAmount_ == 0),
+            "It is only possible to deposit or withdraw, not both"
+        );
 
         uint currentEpisode = getCurrentEpisode();
-        require(episodeToStake_ < currentEpisode + MAX_ACTIVE_EPISODES, "Too long staking time");
+        require(
+            episodeToStake_ < currentEpisode + MAX_ACTIVE_EPISODES,
+            "Too long staking time"
+        );
         require(episodeToStake_ >= currentEpisode, "Outdated episode to stake");
-        require((episodeToStake_ - currentEpisode) % 3 == 2, "Staking episode must be a multiple of 3");
+        require(
+            (episodeToStake_ - currentEpisode) % 3 == 2,
+            "Staking episode must be a multiple of 3"
+        );
 
         _updateEpisodesState();
 
         PoolStake storage position = positions[positionId_];
         Episode storage previouslyDepositedEpisode = episodes[position.episode];
-        uint sharesToWithdraw = withdrawAmount_ * previouslyDepositedEpisode.episodeShares / previouslyDepositedEpisode.assetsStaked;
-        require(position.episode < episodeToStake_, "It is allowed to extend into a later episode");
-        require(msg.sender != poolUnderwriter || sharesToWithdraw <= maxUnderwriterSharesToUnstake(), "Underwriter position can't be less than allowed");
-        require(position.episode < currentEpisode || sharesToWithdraw == 0, "It is possible to withdraw on extend only for the expired positions");
+        uint sharesToWithdraw = (withdrawAmount_ *
+            previouslyDepositedEpisode.episodeShares) /
+            previouslyDepositedEpisode.assetsStaked;
+        require(
+            position.episode <= episodeToStake_,
+            "It is not allowed to extend into a earlier episode"
+        );
+        require(
+            msg.sender != poolUnderwriter ||
+                sharesToWithdraw <= maxUnderwriterSharesToUnstake(),
+            "Underwriter position can't be less than allowed"
+        );
+        require(
+            position.episode < currentEpisode || sharesToWithdraw == 0,
+            "It is possible to withdraw on extend only for the expired positions"
+        );
 
         uint fromEpisode = position.episode; // Capture original episode for event
         // Collect rewards
@@ -458,23 +585,40 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
         uint positionAssets = 0;
         uint newRewardShares = 0;
-        if(position.episode < currentEpisode) {
-            positionAssets = (position.shares * previouslyDepositedEpisode.assetsStaked) / previouslyDepositedEpisode.episodeShares;
+        if (position.episode < currentEpisode) {
+            positionAssets =
+                (position.shares * previouslyDepositedEpisode.assetsStaked) /
+                previouslyDepositedEpisode.episodeShares;
             uint movedAssets = positionAssets - withdrawAmount_;
             previouslyDepositedEpisode.assetsStaked -= positionAssets;
             previouslyDepositedEpisode.episodeShares -= position.shares;
             previouslyDepositedEpisode.rewardShares -= position.rewardShares;
 
-
-            if(withdrawAmount_ > 0) {
-                capitalPool.positionWithdraw(poolId, withdrawAmount_, 0, msg.sender);
+            if (withdrawAmount_ > 0) {
+                capitalPool.positionWithdraw(
+                    poolId,
+                    withdrawAmount_,
+                    0,
+                    msg.sender
+                );
             }
             capitalPool.reDeposit(poolId, movedAssets);
 
-            uint newShares = totalPoolShares == 0 ? amountToDeposit_ + movedAssets : ((amountToDeposit_ + movedAssets) * totalPoolShares) / totalAssetsStaked;
-            require(msg.sender == poolUnderwriter || newShares <= maxSharesUserToStake(), "Underwriter position can't be less than allowed");
-
-            newRewardShares = newShares + newShares * (episodeToStake_ - currentEpisode - 2) * bonusPerEpisodeStaked / BASIS_POINTS;
+            uint newShares = totalPoolShares == 0
+                ? amountToDeposit_ + movedAssets
+                : ((amountToDeposit_ + movedAssets) * totalPoolShares) /
+                    totalAssetsStaked;
+            require(
+                msg.sender == poolUnderwriter ||
+                    newShares <= maxSharesUserToStake(),
+                "Underwriter position can't be less than allowed"
+            );
+            newRewardShares =
+                newShares +
+                (newShares *
+                    (episodeToStake_ - currentEpisode - 2) *
+                    bonusPerEpisodeStaked) /
+                BASIS_POINTS;
             position.shares = newShares;
             position.rewardShares = newRewardShares;
 
@@ -482,16 +626,29 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             totalAssetsStaked += amountToDeposit_ + movedAssets;
             totalRewardShares += newRewardShares;
         } else {
-            uint episodeAssets = episodes[position.episode].episodeShares * totalAssetsStaked / totalPoolShares;
-            positionAssets = (position.shares * episodeAssets) / previouslyDepositedEpisode.episodeShares;
+            uint episodeAssets = (episodes[position.episode].episodeShares *
+                totalAssetsStaked) / totalPoolShares;
+            positionAssets =
+                (position.shares * episodeAssets) /
+                previouslyDepositedEpisode.episodeShares;
             previouslyDepositedEpisode.assetsStaked -= positionAssets;
             previouslyDepositedEpisode.episodeShares -= position.shares;
             previouslyDepositedEpisode.rewardShares -= position.rewardShares;
 
-            uint newShares = amountToDeposit_ * totalPoolShares / totalAssetsStaked;
-            require(msg.sender == poolUnderwriter || newShares <= maxSharesUserToStake(), "Underwriter position can't be less than allowed");
+            uint newShares = (amountToDeposit_ * totalPoolShares) /
+                totalAssetsStaked;
+            require(
+                msg.sender == poolUnderwriter ||
+                    newShares <= maxSharesUserToStake(),
+                "Underwriter position can't be less than allowed"
+            );
 
-            newRewardShares = newShares + newShares * (episodeToStake_ - currentEpisode - 2) * bonusPerEpisodeStaked / BASIS_POINTS;
+            newRewardShares =
+                newShares +
+                (newShares *
+                    (episodeToStake_ - currentEpisode - 2) *
+                    bonusPerEpisodeStaked) /
+                BASIS_POINTS;
             position.shares += newShares;
             position.rewardShares += newRewardShares;
 
@@ -501,23 +658,31 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         }
 
         // Add underwriter reward shares
-        uint underwriterRewardShares = (newRewardShares * underwriterFee) / (BASIS_POINTS - underwriterFee);
+        uint underwriterRewardShares = (newRewardShares * underwriterFee) /
+            (BASIS_POINTS - underwriterFee);
         positions[0].rewardShares += underwriterRewardShares;
         totalRewardShares += underwriterRewardShares;
 
         // Update new target episode
         Episode storage targetEpisode = episodes[episodeToStake_];
-        targetEpisode.assetsStaked += positionAssets;
+        targetEpisode.assetsStaked += positionAssets + amountToDeposit_;
         targetEpisode.episodeShares += position.shares;
         targetEpisode.rewardShares += position.rewardShares;
 
         position.episode = episodeToStake_;
 
-        if(amountToDeposit_ > 0) {
-            poolAsset.transferFrom(msg.sender, address(capitalPool), amountToDeposit_);
-            capitalPool.deposit(poolId, amountToDeposit_, ICapitalPool.DepositType.Position);
+        if (amountToDeposit_ > 0) {
+            poolAsset.transferFrom(
+                msg.sender,
+                address(capitalPool),
+                amountToDeposit_
+            );
+            capitalPool.deposit(
+                poolId,
+                amountToDeposit_,
+                ICapitalPool.DepositType.Position
+            );
         }
-
 
         emit PoolPositionExtended(
             msg.sender,
@@ -532,25 +697,32 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         return true;
     }
 
-    function quitPoolPosition(uint positionId_) external whenNotPaused returns (bool completed) {
+    function quitPoolPosition(
+        uint positionId_
+    ) external whenNotPaused returns (bool completed) {
         address toRemove = msg.sender;
         uint currentEpisode = getCurrentEpisode();
         PoolStake memory position = positions[positionId_];
-        require(toRemove == positionNFT.ownerOf(positionId_), "Only position owner can remove");
+        require(
+            toRemove == positionNFT.ownerOf(positionId_),
+            "Only position owner can remove"
+        );
         require(position.active, "Position inactive");
         require(position.episode < currentEpisode, "Funds are timelocked");
         _updateEpisodesState();
 
-        require(toRemove != poolUnderwriter ||
-            position.shares <= maxUnderwriterSharesToUnstake(),
+        require(
+            toRemove != poolUnderwriter ||
+                position.shares <= maxUnderwriterSharesToUnstake(),
             "Underwriter position can't be less than allowed"
-         );
+        );
 
         uint rewards = earnedPosition(positionId_);
         positions[positionId_].rewardPerShare = accumulatedRewardRatePerShare;
         // Calculate withdraw based on shares in the episode
         Episode storage episode = episodes[position.episode];
-        uint positionAmount = (position.shares * episode.assetsStaked)/ episode.episodeShares;
+        uint positionAmount = (position.shares * episode.assetsStaked) /
+            episode.episodeShares;
 
         // Clean episode
         episode.assetsStaked -= positionAmount;
@@ -558,7 +730,6 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         episode.rewardShares -= position.rewardShares;
 
         positions[positionId_].active = false;
-
 
         emit PoolExited(
             toRemove,
@@ -582,12 +753,21 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         require(msg.sender == claimer, "Caller is not the claimer");
         _updateEpisodesState();
         uint currentEpisode = getCurrentEpisode();
-        PoolStake storage underwriterPosition = positions[underwriterPositionId];
-        Episode storage underwriterEpisode = episodes[underwriterPosition.episode];
-        uint underwriterStake = underwriterPosition.shares * underwriterEpisode.assetsStaked / underwriterEpisode.episodeShares;
-        uint totalAssetsStakedWithUnderwriterPosition = currentEpisode > underwriterPosition.episode ? underwriterEpisode.assetsStaked + totalAssetsStaked : totalAssetsStaked;
-        uint maxUnderwriterStakeToBurn = (underwriterFirstLoss * totalAssetsStakedWithUnderwriterPosition) / BASIS_POINTS;
-        if(underwriterStake < maxUnderwriterStakeToBurn) {
+        PoolStake storage underwriterPosition = positions[
+            underwriterPositionId
+        ];
+        Episode storage underwriterEpisode = episodes[
+            underwriterPosition.episode
+        ];
+        uint underwriterStake = (underwriterPosition.shares *
+            underwriterEpisode.assetsStaked) / underwriterEpisode.episodeShares;
+        uint totalAssetsStakedWithUnderwriterPosition = currentEpisode >
+            underwriterPosition.episode
+            ? underwriterEpisode.assetsStaked + totalAssetsStaked
+            : totalAssetsStaked;
+        uint maxUnderwriterStakeToBurn = (underwriterFirstLoss *
+            totalAssetsStakedWithUnderwriterPosition) / BASIS_POINTS;
+        if (underwriterStake < maxUnderwriterStakeToBurn) {
             maxUnderwriterStakeToBurn = underwriterStake;
         }
 
@@ -601,7 +781,9 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         }
 
         if (underwriterBurn > 0) {
-            uint sharesToBurn = underwriterBurn * underwriterEpisode.episodeShares / underwriterEpisode.assetsStaked;
+            uint sharesToBurn = (underwriterBurn *
+                underwriterEpisode.episodeShares) /
+                underwriterEpisode.assetsStaked;
             underwriterEpisode.episodeShares -= sharesToBurn;
             underwriterEpisode.assetsStaked -= underwriterBurn;
             underwriterPosition.shares -= sharesToBurn;
@@ -612,33 +794,38 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
                 totalPoolShares -= sharesToBurn;
             } else {
                 // Make additional slash for the expired underwriter position
-                uint underwriterAdditionalSlash = leftToSlash * underwriterEpisode.assetsStaked / (totalAssetsStaked + underwriterEpisode.assetsStaked);
+                uint underwriterAdditionalSlash = (leftToSlash *
+                    underwriterEpisode.assetsStaked) /
+                    (totalAssetsStaked + underwriterEpisode.assetsStaked);
                 underwriterEpisode.assetsStaked -= underwriterAdditionalSlash;
                 leftToSlash -= underwriterAdditionalSlash;
             }
         }
 
         if (leftToSlash > 0) {
-            for (uint i = currentEpisode; i < currentEpisode + MAX_ACTIVE_EPISODES; i++) {
+            for (
+                uint i = currentEpisode;
+                i < currentEpisode + MAX_ACTIVE_EPISODES;
+                i++
+            ) {
                 Episode storage episode = episodes[i];
-                episode.assetsStaked -= (leftToSlash * episode.assetsStaked) / totalAssetsStaked;
+                episode.assetsStaked -=
+                    (leftToSlash * episode.assetsStaked) /
+                    totalAssetsStaked;
             }
             totalAssetsStaked -= leftToSlash;
         }
 
         capitalPool.claimWithdraw(poolId, amount_, receiver_);
-        emit ClaimExecuted(
-            msg.sender,
-            receiver_,
-            amount_,
-            totalAssetsStaked
-        );
+        emit ClaimExecuted(msg.sender, receiver_, amount_, totalAssetsStaked);
         return true;
     }
 
     function _rewardPool(uint amount_, uint coverageDuration_) internal {
-        uint lastRewardEpisode = (block.timestamp + coverageDuration_) / EPISODE_DURATION;
-        uint rewardDuration = getEpisodeFinishTime(lastRewardEpisode) - block.timestamp;
+        uint lastRewardEpisode = (block.timestamp + coverageDuration_) /
+            EPISODE_DURATION;
+        uint rewardDuration = getEpisodeFinishTime(lastRewardEpisode) -
+            block.timestamp;
         uint rewardRateIncrease = amount_ / rewardDuration;
         poolRewardRate += rewardRateIncrease;
 
@@ -646,17 +833,26 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         episode.rewardDecrease += rewardRateIncrease;
     }
 
-    function _verifyProductAllocation(uint startEpisode_, uint requestedAllocation_) internal view returns(bool) {
+    function _verifyProductAllocation(
+        uint startEpisode_,
+        uint requestedAllocation_
+    ) internal view returns (bool) {
         uint availableAllocation = 0;
         uint currentEpisode = getCurrentEpisode();
-        for(uint i = startEpisode_; i < currentEpisode + MAX_ACTIVE_EPISODES; i++) {
+        for (
+            uint i = startEpisode_;
+            i < currentEpisode + MAX_ACTIVE_EPISODES;
+            i++
+        ) {
             Episode storage episode = episodes[i];
-            availableAllocation += episode.episodeShares * totalAssetsStaked / totalPoolShares; // Include capital pool income
-            if(availableAllocation >= requestedAllocation_) {
+            availableAllocation +=
+                (episode.episodeShares * totalAssetsStaked) /
+                totalPoolShares; // Include capital pool income
+            if (availableAllocation >= requestedAllocation_) {
                 return true;
             }
         }
-        return true;
+        return false;
     }
 
     function purchaseCover(
@@ -667,7 +863,10 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     ) external whenNotPaused returns (bool completed) {
         Product storage product = products[productId_];
         require(product.active, "Product is not active");
-        require(coverageDuration_ <= product.maxCoverageDuration, "Coverage duration is too long");
+        require(
+            coverageDuration_ <= product.maxCoverageDuration,
+            "Coverage duration is too long"
+        );
         require(coverageDuration_ >= 28 days, "Coverage duration is too short");
         require(coveredAccount_ != address(0), "Wrong address covered");
 
@@ -676,10 +875,21 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
         // Check enough allocation
         {
-            uint lastCoveredEpisode = (block.timestamp + coverageDuration_) / EPISODE_DURATION;
-            uint requiredProductAllocation = ((coverageAmount_ + product.allocation) * BASIS_POINTS)/ product.maxPoolAllocationPercent;
-            require(_verifyProductAllocation(lastCoveredEpisode, requiredProductAllocation), "Not enough assets to cover");
-            episodeAllocationCut[productId_][lastCoveredEpisode] += coverageAmount_;
+            uint lastCoveredEpisode = (block.timestamp + coverageDuration_) /
+                EPISODE_DURATION;
+            uint requiredProductAllocation = ((coverageAmount_ +
+                product.allocation) * BASIS_POINTS) /
+                product.maxPoolAllocationPercent;
+            require(
+                _verifyProductAllocation(
+                    lastCoveredEpisode,
+                    requiredProductAllocation
+                ),
+                "Not enough assets to cover"
+            );
+            episodeAllocationCut[productId_][
+                lastCoveredEpisode
+            ] += coverageAmount_;
             product.allocation += coverageAmount_;
 
             totalCoverAllocation += coverageAmount_;
@@ -687,12 +897,22 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         }
 
         // Calculate premium
-        uint premiumAmount = (coverageDuration_ * product.annualPercent * coverageAmount_) / (365 days * BASIS_POINTS);
-        uint protocolFeeAmount = premiumAmount * protocolFee / BASIS_POINTS;
+        uint premiumAmount = (coverageDuration_ *
+            product.annualPercent *
+            coverageAmount_) / (365 days * BASIS_POINTS);
+        uint protocolFeeAmount = (premiumAmount * protocolFee) / BASIS_POINTS;
         uint rewardAmount = premiumAmount - protocolFeeAmount;
         poolAsset.transferFrom(msg.sender, address(capitalPool), rewardAmount);
-        poolAsset.transferFrom(msg.sender, protocolRewardsAddress, protocolFeeAmount);
-        capitalPool.deposit(poolId, rewardAmount, ICapitalPool.DepositType.Reward);
+        poolAsset.transferFrom(
+            msg.sender,
+            protocolRewardsAddress,
+            protocolFeeAmount
+        );
+        capitalPool.deposit(
+            poolId,
+            rewardAmount,
+            ICapitalPool.DepositType.Reward
+        );
 
         _rewardPool(rewardAmount, coverageDuration_);
 
@@ -722,8 +942,14 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         uint64 maxCoverageDuration_,
         uint64 maxPoolAllocationPercent_
     ) external onlyUnderwriter returns (uint) {
-        require(maxCoverageDuration_ < (MAX_ACTIVE_EPISODES -1) * EPISODE_DURATION, "Max coverage duration is too long");
-        require(maxPoolAllocationPercent_ <= BASIS_POINTS, "Max pool allocation is too high");
+        require(
+            maxCoverageDuration_ < (MAX_ACTIVE_EPISODES - 1) * EPISODE_DURATION,
+            "Max coverage duration is too long"
+        );
+        require(
+            maxPoolAllocationPercent_ <= BASIS_POINTS,
+            "Max pool allocation is too high"
+        );
         require(annualPercent_ > 0, "Annual premium must be greater than 0");
 
         uint64 productId = productCounter++;
@@ -747,8 +973,14 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         uint64 maxPoolAllocationPercent_,
         bool active_
     ) external onlyUnderwriter {
-        require(maxCoverageDuration_ < (MAX_ACTIVE_EPISODES -1) * EPISODE_DURATION, "Max coverage duration is too long");
-        require(maxPoolAllocationPercent_ <= BASIS_POINTS, "Max pool allocation is too high");
+        require(
+            maxCoverageDuration_ < (MAX_ACTIVE_EPISODES - 1) * EPISODE_DURATION,
+            "Max coverage duration is too long"
+        );
+        require(
+            maxPoolAllocationPercent_ <= BASIS_POINTS,
+            "Max pool allocation is too high"
+        );
         require(annualPercent_ > 0, "Annual premium must be greater than 0");
         require(productId_ < productCounter, "Product ID is too high");
 
@@ -772,12 +1004,40 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
     }
 
     function pause() external {
-        require(msg.sender == protocolSettings.guardian(), "Only guardian can call");
+        require(
+            msg.sender == protocolSettings.guardian(),
+            "Only guardian can call"
+        );
         _pause();
     }
 
     function unpause() external {
-        require(msg.sender == protocolSettings.guardian(), "Only guardian can call");
+        require(
+            msg.sender == protocolSettings.guardian(),
+            "Only guardian can call"
+        );
         _unpause();
+    }
+
+    function poolStatsLatest()
+        external
+        returns (
+            uint totalAssetsStaked_,
+            uint totalPoolShares_,
+            uint totalRewardShares_,
+            uint poolRewardRate_
+        )
+    {
+        _updateEpisodesState();
+        totalAssetsStaked_ = totalAssetsStaked;
+        totalPoolShares_ = totalPoolShares;
+        totalRewardShares_ = totalRewardShares;
+        poolRewardRate_ = poolRewardRate;
+    }
+
+    function getProductAllocation(uint productId_) external returns (uint) {
+        _updateEpisodesState();
+        _updateProductAllocation(products[productId_]);
+        return products[productId_].allocation;
     }
 }

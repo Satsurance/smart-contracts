@@ -18,7 +18,7 @@ async function basicFixture(deploymentParams = {}) {
         minTimelockDelay: 24 * 60 * 60, // 1 day
         protocolFee: 1500, // 15%
         underwriterFee: 1000, // 10%
-        minimalUnderwriterStake: 1000,
+        minimalUnderwriterStake: 1000, // 10%
         bonusPerEpisodeStaked: 0,
         claimDeposit: 0,
         approvalPeriod: 3 * 7 * 24 * 60 * 60, // 3 weeks

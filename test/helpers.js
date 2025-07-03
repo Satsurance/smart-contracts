@@ -41,10 +41,8 @@ async function purchaseCoverage({
     coveredAccount,
     coverageAmount,
     coverageDuration = 365 * 24 * 60 * 60, // 1 year in seconds (default)
+    productId = 0,
 }) {
-    // Default to product ID 0 (the basic product created in tests)
-    const productId = 0;
-
     // Approve token transfer if needed
     const buyerAddress = await buyer.getAddress();
 
