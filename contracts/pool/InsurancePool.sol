@@ -1025,7 +1025,9 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             uint totalAssetsStaked_,
             uint totalPoolShares_,
             uint totalRewardShares_,
-            uint poolRewardRate_
+            uint poolRewardRate_,
+            uint maxSharesUserToStake_,
+            uint maxUnderwriterSharesToUnstake_
         )
     {
         _updateEpisodesState();
@@ -1033,6 +1035,8 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         totalPoolShares_ = totalPoolShares;
         totalRewardShares_ = totalRewardShares;
         poolRewardRate_ = poolRewardRate;
+        maxSharesUserToStake_ = maxSharesUserToStake();
+        maxUnderwriterSharesToUnstake_ = maxUnderwriterSharesToUnstake();
     }
 
     function getProductAllocation(uint productId_) external returns (uint) {

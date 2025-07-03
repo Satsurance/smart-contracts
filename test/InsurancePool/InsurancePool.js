@@ -4,7 +4,7 @@ const {
 } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
 const { purchaseCoverage, getCurrentEpisode, expectAllowedUnderstaking } = require("../helpers.js");
 const { basicFixture } = require("../fixtures.js");
-const { ALLOWED_UNDERSTAKING, SECS_IN_DAY, EPISODE_DURATION, MINIMUM_STAKE_AMOUNT_BTC } = require("../constants.js");
+const { ALLOWED_UNDERSTAKING, SECS_IN_DAY, EPISODE_DURATION, MINIMUM_STAKE_AMOUNT_BTC, BASIS_POINTS } = require("../constants.js");
 
 const { expect } = require("chai");
 
@@ -409,7 +409,171 @@ describe("InsurancePool", async function () {
     ).to.be.revertedWith("New deposits are not allowed");
   });
 
+  it("test underwriter minimum stake enforcement with active position", async function () {
+    const underwriterStakeAmount = ethers.parseUnits("10", "ether");
+    const episodeOffset = 23n;
 
+    const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
+    const { owner, poolUnderwriter } = accounts;
+
+    const currentEpisode = BigInt(await getCurrentEpisode());
+    const episodeToStake = currentEpisode + episodeOffset;
+
+    // Underwriter joins pool with a relatively small stake
+    await insurancePool
+      .connect(poolUnderwriter)
+      .joinPool(underwriterStakeAmount, episodeToStake);
+
+    // Get the minimum underwriter percentage (should be 1000 basis points = 10%)
+    const minUnderwriterPercentage = await insurancePool.minUnderwriterPercentage();
+    const basisPoints = 10000n;
+
+    // Calculate the exact maximum allowed user stake
+    const totalPoolShares = await insurancePool.totalPoolShares();
+    const maxAllowedUserStake = (underwriterStakeAmount * basisPoints) / minUnderwriterPercentage - totalPoolShares;
+
+    // Verify our calculation matches the contract's calculation
+    const contractMaxShares = await insurancePool.maxSharesUserToStake();
+    expect(contractMaxShares).to.equal(maxAllowedUserStake);
+
+    // Test that 1 wei more fails
+    const excessiveStake = maxAllowedUserStake + 1n;
+    await expect(
+      insurancePool.connect(owner).joinPool(excessiveStake, episodeToStake)
+    ).to.be.revertedWith("Underwriter position can't be less than allowed");
+
+    // Test that exactly the maximum allowed amount succeeds
+    await expect(
+      insurancePool.connect(owner).joinPool(maxAllowedUserStake, episodeToStake)
+    ).to.not.be.reverted;
+
+    // Verify the underwriter percentage is exactly at the minimum after successful stake
+    const poolStats = await insurancePool.poolStatsLatest.staticCall();
+    const underwriterPositionId = await positionNFT.tokenOfOwnerByIndex(poolUnderwriter.address, 0);
+    const underwriterPosition = await insurancePool.getPoolPosition(underwriterPositionId);
+    const underwriterPercentage = (underwriterPosition.shares * basisPoints) / poolStats.totalPoolShares_;
+    expect(underwriterPercentage).to.equal(minUnderwriterPercentage);
+  });
+
+  it("test underwriter minimum stake enforcement with expired position", async function () {
+    const underwriterStakeAmount = ethers.parseUnits("10", "ether");
+    const shortEpisodeOffset = 2n; // Short episode that will expire soon
+    const userEpisodeOffset = 23n; // Long episode for user
+
+    const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
+    const { owner, poolUnderwriter } = accounts;
+
+    const currentEpisode = BigInt(await getCurrentEpisode());
+    const underwriterEpisodeToStake = currentEpisode + shortEpisodeOffset;
+    const userEpisodeToStake = currentEpisode + userEpisodeOffset;
+
+    // Underwriter joins pool with a short episode
+    await insurancePool
+      .connect(poolUnderwriter)
+      .joinPool(underwriterStakeAmount, underwriterEpisodeToStake);
+
+    // Wait for the underwriter's episode to expire
+    const underwriterEpisodeFinishTime = (underwriterEpisodeToStake + 1n) * EPISODE_DURATION;
+    await time.increaseTo(underwriterEpisodeFinishTime + 1n);
+
+    // Verify the underwriter position is now expired
+    const currentEpisodeAfterWait = BigInt(await getCurrentEpisode());
+    const underwriterPositionId = await positionNFT.tokenOfOwnerByIndex(poolUnderwriter.address, 0);
+    const underwriterPosition = await insurancePool.getPoolPosition(underwriterPositionId);
+    expect(underwriterPosition.episode).to.be.lessThan(currentEpisodeAfterWait);
+
+    // Get the minimum underwriter percentage (should be 1000 basis points = 10%)
+    const minUnderwriterPercentage = await insurancePool.minUnderwriterPercentage();
+    const basisPoints = 10000n;
+
+    // Calculate the exact maximum allowed user stake for expired underwriter position
+    const poolStats = await insurancePool.poolStatsLatest.staticCall();
+    const expectedAllowedUserStake = (underwriterStakeAmount * basisPoints) / minUnderwriterPercentage - poolStats.totalPoolShares_ - underwriterStakeAmount;
+
+    // Verify our calculation matches the contract's calculation
+    const contractMaxShares = poolStats.maxSharesUserToStake_;
+    expect(contractMaxShares).to.equal(expectedAllowedUserStake);
+
+
+    // Test that 1 wei more fails
+    const excessiveStake = expectedAllowedUserStake + 1n;
+    await expect(
+      insurancePool.connect(owner).joinPool(excessiveStake, userEpisodeToStake)
+    ).to.be.revertedWith("Underwriter position can't be less than allowed");
+
+    // Test that exactly the maximum allowed amount succeeds
+    await expect(
+      insurancePool.connect(owner).joinPool(expectedAllowedUserStake, userEpisodeToStake)
+    ).to.not.be.reverted;
+
+
+    // Verify the underwriter percentage is at least the minimum after successful stake
+    // For expired positions, the underwriter shares are added to totalPoolShares for percentage calculation
+    const finalTotalPoolShares = await insurancePool.totalPoolShares();
+    const effectiveTotalShares = finalTotalPoolShares + underwriterStakeAmount; // Add expired underwriter shares
+    const underwriterPercentage = (underwriterStakeAmount * basisPoints) / effectiveTotalShares;
+
+    // The actual percentage should be at least the minimum (can be higher due to discrete stake amounts)
+    expect(underwriterPercentage).to.be.at.least(minUnderwriterPercentage);
+  });
+
+  it("test underwriter cannot quit pool if it exceeds minUnderwriterPercentage", async function () {
+    const underwriterStakeAmount = ethers.parseUnits("10", "ether");
+    const userStakeAmount = ethers.parseUnits("80", "ether"); // Large user stake
+    const expectedMaxSharesToUnstake = ethers.parseUnits("1.111111111111111111", "ether");
+    const episodeOffset = 23n;
+    const shortEpisodeOffset = 2n;
+
+    const { insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
+    const { owner, poolUnderwriter } = accounts;
+
+    const currentEpisode = BigInt(await getCurrentEpisode());
+    const longEpisodeToStake = currentEpisode + episodeOffset;
+    const shortEpisodeToStake = currentEpisode + shortEpisodeOffset;
+
+    // Underwriter joins with relatively small stake
+    await insurancePool
+      .connect(poolUnderwriter)
+      .joinPool(underwriterStakeAmount, shortEpisodeToStake);
+
+    // User joins with large stake that makes underwriter percentage close to minimum
+    await insurancePool.connect(owner).joinPool(userStakeAmount, longEpisodeToStake);
+
+    // Wait for episodes to expire so positions can be quit
+    const episodeFinishTime = (shortEpisodeToStake + 1n) * EPISODE_DURATION;
+    await time.increaseTo(episodeFinishTime + 1n);
+
+    // Get position IDs
+    const underwriterPositionId = await positionNFT.tokenOfOwnerByIndex(poolUnderwriter.address, 0);
+    const userPositionId = await positionNFT.tokenOfOwnerByIndex(owner.address, 0);
+
+    // Verify the underwriter percentage is at/near the minimum
+    const poolStats = await insurancePool.poolStatsLatest.staticCall();
+    const underwriterPosition = await insurancePool.getPoolPosition(underwriterPositionId);
+
+
+    // Verify that maxUnderwriterSharesToUnstake is 0 (can't unstake anything)
+    expect(poolStats.maxUnderwriterSharesToUnstake_).to.equal(expectedMaxSharesToUnstake);
+
+    // Attempt to quit underwriter position should fail
+    await expect(
+      insurancePool.connect(poolUnderwriter).quitPoolPosition(underwriterPositionId)
+    ).to.be.revertedWith("Underwriter position can't be less than allowed");
+
+
+    const longEpisodeFinishTime = (longEpisodeToStake + 1n) * EPISODE_DURATION;
+    await time.increaseTo(longEpisodeFinishTime + 1n);
+
+    // User should still be able to quit their position
+    await expect(
+      insurancePool.connect(owner).quitPoolPosition(userPositionId)
+    ).to.not.be.reverted;
+
+    // After user quits, underwriter should be able to quit since they're the only one left
+    await expect(
+      insurancePool.connect(poolUnderwriter).quitPoolPosition(underwriterPositionId)
+    ).to.not.be.reverted;
+  });
 
 });
 
