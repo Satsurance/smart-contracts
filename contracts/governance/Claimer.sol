@@ -23,6 +23,10 @@ struct Claim {
 }
 
 contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
+    // Constants
+    uint256 public constant BASIS_POINTS = 10000; // 100% = 10000 basis points
+    uint256 public constant MAX_CLAIM_REDUCTION = 500; // Maximum 5% reduction
+
     // Role definitions
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
     bytes32 public constant OPERATOR_MANAGER_ROLE =
@@ -32,6 +36,7 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
     uint256 public claimDeposit;
     uint256 public approvalPeriod;
     uint256 public executionTimeout;
+    uint256 public claimReduction; // In basis points (0-10000, where 10000 = 100%)
     IERC20 public depositToken;
 
     mapping(uint256 => Claim) public claims;
@@ -59,6 +64,7 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
     event ClaimDepositChanged(uint256 oldDeposit, uint256 newDeposit);
     event ApprovalPeriodChanged(uint256 oldPeriod, uint256 newPeriod);
     event ExecutionTimeoutChanged(uint256 oldTimeout, uint256 newTimeout);
+    event ClaimReductionChanged(uint256 oldReduction, uint256 newReduction);
 
     /**
      * @dev Storage gap to allow for future upgrades
@@ -78,7 +84,8 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
         uint256 claimDeposit_,
         address depositToken_,
         uint256 approvalPeriod_,
-        uint256 executionTimeout_
+        uint256 executionTimeout_,
+        uint256 claimReduction_
     ) public initializer {
         __AccessControl_init();
         __UUPSUpgradeable_init();
@@ -93,6 +100,11 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
         claimDeposit = claimDeposit_;
         approvalPeriod = approvalPeriod_;
         executionTimeout = executionTimeout_;
+        require(
+            claimReduction_ <= MAX_CLAIM_REDUCTION,
+            "Claim reduction cannot exceed 5%"
+        );
+        claimReduction = claimReduction_;
         depositToken = IERC20(depositToken_);
     }
 
@@ -118,6 +130,18 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
         uint256 oldTimeout = executionTimeout;
         executionTimeout = newExecutionTimeout;
         emit ExecutionTimeoutChanged(oldTimeout, newExecutionTimeout);
+    }
+
+    function setClaimReduction(
+        uint256 newClaimReduction
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(
+            newClaimReduction <= MAX_CLAIM_REDUCTION,
+            "Claim reduction cannot exceed 5%"
+        );
+        uint256 oldReduction = claimReduction;
+        claimReduction = newClaimReduction;
+        emit ClaimReductionChanged(oldReduction, newClaimReduction);
     }
 
     function createClaim(
@@ -204,9 +228,13 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
 
         claim.executed = true;
 
+        // Apply claim reduction
+        uint256 reducedAmount = (claim.amount *
+            (BASIS_POINTS - claimReduction)) / BASIS_POINTS;
+
         IInsurancePool(claim.poolAddress).executeClaim(
             claim.receiver,
-            claim.amount
+            reducedAmount
         );
 
         emit ClaimExecuted(claimId);
@@ -231,45 +259,6 @@ contract Claimer is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
         depositToken.transfer(claim.proposer, depositToWithdraw);
 
         emit DepositWithdrawn(claimId, claim.proposer, depositToWithdraw);
-    }
-
-    function getClaimDetails(
-        uint256 claimId
-    )
-        external
-        view
-        returns (
-            address proposer,
-            address receiver,
-            address poolAddress,
-            string memory description,
-            uint256 amount,
-            uint256 depositAmount,
-            uint256 startTime,
-            uint256 approvalTime,
-            bool approved,
-            bool executed,
-            bool exists,
-            bool spam
-        )
-    {
-        Claim storage claim = claims[claimId];
-        require(claim.exists, "Claim does not exist");
-
-        return (
-            claim.proposer,
-            claim.receiver,
-            claim.poolAddress,
-            claim.description,
-            claim.amount,
-            claim.depositAmount,
-            claim.startTime,
-            claim.approvalTime,
-            claim.approved,
-            claim.executed,
-            claim.exists,
-            claim.spam
-        );
     }
 
     function _authorizeUpgrade(

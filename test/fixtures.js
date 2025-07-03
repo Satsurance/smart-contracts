@@ -23,6 +23,7 @@ async function basicFixture(deploymentParams = {}) {
         claimDeposit: 0,
         approvalPeriod: 3 * 7 * 24 * 60 * 60, // 3 weeks
         executionTimeout: 7 * 24 * 60 * 60, // 1 week
+        claimReduction: 0, // 0% reduction by default
     };
 
     // Merge with provided parameters
