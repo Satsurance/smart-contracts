@@ -794,4 +794,18 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         require(msg.sender == protocolSettings.guardian(), "Only guardian can call");
         _unpause();
     }
+
+    function poolStatsLatest() external returns (uint totalAssetsStaked_, uint totalPoolShares_, uint totalRewardShares_, uint poolRewardRate_) {
+        _updateEpisodesState();
+        totalAssetsStaked_ = totalAssetsStaked;
+        totalPoolShares_ = totalPoolShares;
+        totalRewardShares_ = totalRewardShares;
+        poolRewardRate_ = poolRewardRate;
+    }
+
+    function getProductAllocation(uint productId_) external returns (uint) {
+        _updateEpisodesState();
+        _updateProductAllocation(products[productId_]);
+        return products[productId_].allocation;
+    }
 }
