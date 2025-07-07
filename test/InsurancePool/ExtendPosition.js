@@ -2,7 +2,7 @@ const {
     time,
     loadFixture,
 } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
-const { getCurrentEpisode } = require("../helpers.js");
+const { getCurrentEpisode, findClosestStakableEpisode } = require("../helpers.js");
 const { basicFixture } = require("../fixtures.js");
 
 const { expect } = require("chai");
@@ -13,15 +13,13 @@ describe("ExtendPosition", async function () {
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const userStakeAmount = ethers.parseUnits("10", "ether");
         const additionalDeposit = ethers.parseUnits("5", "ether");
-        const initialEpisodeOffset = 5n;
-        const extendedEpisodeOffset = 23n;
 
         const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
         const currentEpisode = BigInt(await getCurrentEpisode());
-        const initialEpisodeToStake = currentEpisode + initialEpisodeOffset;
-        const extendedEpisodeToStake = currentEpisode + extendedEpisodeOffset;
+        const initialEpisodeToStake = await findClosestStakableEpisode(5n);
+        const extendedEpisodeToStake = await findClosestStakableEpisode(23n);
 
         // Create underwriter position first
         await insurancePool
@@ -53,7 +51,7 @@ describe("ExtendPosition", async function () {
         ).to.be.revertedWith("Only position owner can extend");
 
         // Test that both deposit and withdraw cannot be done at the same time
-        const anotherValidEpisode = currentEpisode + 20n; // Another valid episode within limits
+        const anotherValidEpisode = await findClosestStakableEpisode(20n);
         await expect(
             insurancePool.connect(owner).extendPoolPosition(
                 ownerPositionId,
@@ -149,15 +147,13 @@ describe("ExtendPosition", async function () {
     it("test expired position extension basic", async function () {
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const userStakeAmount = ethers.parseUnits("10", "ether");
-        const shortEpisodeOffset = 2n;
-        const extendedEpisodeOffset = 23n;
 
         const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
         const currentEpisode = BigInt(await getCurrentEpisode());
-        const shortEpisodeToStake = currentEpisode + shortEpisodeOffset;
-        const extendedEpisodeToStake = currentEpisode + extendedEpisodeOffset;
+        const shortEpisodeToStake = await findClosestStakableEpisode(2n);
+        const extendedEpisodeToStake = await findClosestStakableEpisode(23n);
 
         // Create underwriter position first with longer duration
         await insurancePool
@@ -198,15 +194,13 @@ describe("ExtendPosition", async function () {
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const userStakeAmount = ethers.parseUnits("10", "ether");
         const withdrawAmount = ethers.parseUnits("3", "ether");
-        const shortEpisodeOffset = 2n;
-        const extendedEpisodeOffset = 23n;
 
         const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
         const currentEpisode = BigInt(await getCurrentEpisode());
-        const shortEpisodeToStake = currentEpisode + shortEpisodeOffset;
-        const extendedEpisodeToStake = currentEpisode + extendedEpisodeOffset;
+        const shortEpisodeToStake = await findClosestStakableEpisode(2n);
+        const extendedEpisodeToStake = await findClosestStakableEpisode(23n);
 
         // Create underwriter position first with longer duration
         await insurancePool
@@ -257,15 +251,13 @@ describe("ExtendPosition", async function () {
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const userStakeAmount = ethers.parseUnits("10", "ether");
         const additionalDeposit = ethers.parseUnits("2", "ether");
-        const shortEpisodeOffset = 2n;
-        const extendedEpisodeOffset = 23n;
 
         const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
         const currentEpisode = BigInt(await getCurrentEpisode());
-        const shortEpisodeToStake = currentEpisode + shortEpisodeOffset;
-        const extendedEpisodeToStake = currentEpisode + extendedEpisodeOffset;
+        const shortEpisodeToStake = await findClosestStakableEpisode(2n);
+        const extendedEpisodeToStake = await findClosestStakableEpisode(23n);
 
         // Create underwriter position first with longer duration
         await insurancePool
@@ -317,13 +309,12 @@ describe("ExtendPosition", async function () {
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const userStakeAmount = ethers.parseUnits("10", "ether");
         const additionalDeposit = ethers.parseUnits("5", "ether");
-        const initialEpisodeOffset = 2n;
 
         const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
         const currentEpisode = BigInt(await getCurrentEpisode());
-        const initialEpisodeToStake = currentEpisode + initialEpisodeOffset;
+        const initialEpisodeToStake = await findClosestStakableEpisode(5n);
 
         // Create underwriter position first
         await insurancePool
@@ -375,15 +366,12 @@ describe("ExtendPosition", async function () {
         const withdrawAmountToPass = ethers.parseUnits("10", "ether");
         const withdrawAmountToFail = withdrawAmountToPass + 1n;
 
-        const shortEpisodeOffset = 2n;
-        const extendedEpisodeOffset = 23n;
-
         const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
         const currentEpisode = BigInt(await getCurrentEpisode());
-        const shortEpisodeToStake = currentEpisode + shortEpisodeOffset;
-        const extendedEpisodeToStake = currentEpisode + extendedEpisodeOffset;
+        const shortEpisodeToStake = await findClosestStakableEpisode(2n);
+        const extendedEpisodeToStake = await findClosestStakableEpisode(23n);
 
         // Create underwriter position first, this one will expire
         await insurancePool
@@ -420,16 +408,14 @@ describe("ExtendPosition", async function () {
     it("should not be possible to extend with more deposit that allowed by underwriter limits", async function () {
         const underwriterStakeAmount = ethers.parseUnits("10", "ether"); // Small underwriter stake
         const userStakeAmount = ethers.parseUnits("10", "ether");
-        const initialEpisodeOffset = 5n;
-        const extendedEpisodeOffset = 23n;
 
         const { insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
         const currentEpisode = BigInt(await getCurrentEpisode());
         const minUnderwriterPercentage = await insurancePool.minUnderwriterPercentage();
-        const initialEpisodeToStake = currentEpisode + initialEpisodeOffset;
-        const extendedEpisodeToStake = currentEpisode + extendedEpisodeOffset;
+        const initialEpisodeToStake = await findClosestStakableEpisode(5n);
+        const extendedEpisodeToStake = await findClosestStakableEpisode(23n);
 
         // Create small underwriter position first
         await insurancePool
@@ -477,16 +463,14 @@ describe("ExtendPosition", async function () {
     it("should not be possible to extend user position with more deposit that allowed by underwriter limits", async function () {
         const underwriterStakeAmount = ethers.parseUnits("10", "ether"); // Small underwriter stake
         const userStakeAmount = ethers.parseUnits("10", "ether");
-        const shortEpisodeOffset = 2n;
-        const extendedEpisodeOffset = 23n;
 
         const { insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
         const currentEpisode = BigInt(await getCurrentEpisode());
         const minUnderwriterPercentage = await insurancePool.minUnderwriterPercentage();
-        const shortEpisodeToStake = currentEpisode + shortEpisodeOffset;
-        const extendedEpisodeToStake = currentEpisode + extendedEpisodeOffset;
+        const shortEpisodeToStake = await findClosestStakableEpisode(2n);
+        const extendedEpisodeToStake = await findClosestStakableEpisode(23n);
 
         // Create small underwriter position that will expire soon
         await insurancePool
@@ -540,15 +524,13 @@ describe("ExtendPosition", async function () {
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const userStakeAmount = ethers.parseUnits("10", "ether");
         const additionalDeposit = ethers.parseUnits("1", "ether");
-        const shortEpisodeOffset = 2n;
-        const extendedEpisodeOffset = 23n;
 
         const { insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
         const currentEpisode = BigInt(await getCurrentEpisode());
-        const shortEpisodeToStake = currentEpisode + shortEpisodeOffset;
-        const extendedEpisodeToStake = currentEpisode + extendedEpisodeOffset;
+        const shortEpisodeToStake = await findClosestStakableEpisode(2n);
+        const extendedEpisodeToStake = await findClosestStakableEpisode(23n);
 
         // 1. Both underwriter and user deposit to the same episode
         await insurancePool
@@ -615,15 +597,13 @@ describe("ExtendPosition", async function () {
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const userStakeAmount = ethers.parseUnits("10", "ether");
         const additionalDeposit = ethers.parseUnits("1", "ether");
-        const shortEpisodeOffset = 2n;
-        const extendedEpisodeOffset = 23n;
 
         const { insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
         const currentEpisode = BigInt(await getCurrentEpisode());
-        const shortEpisodeToStake = currentEpisode + shortEpisodeOffset;
-        const extendedEpisodeToStake = currentEpisode + extendedEpisodeOffset;
+        const shortEpisodeToStake = await findClosestStakableEpisode(2n);
+        const extendedEpisodeToStake = await findClosestStakableEpisode(23n);
 
         // 1. Both underwriter and user deposit to the same episode
         await insurancePool

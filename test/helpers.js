@@ -112,6 +112,19 @@ function createPoolInitData(poolUnderwriter, governor, poolAsset, claimer, minUn
     );
 }
 
+async function findClosestStakableEpisode(episodeOffset) {
+    const currentEpisode = await getCurrentEpisode();
+    if ((currentEpisode + episodeOffset) % 3n == 2n) {
+        return currentEpisode + episodeOffset;
+    }
+    if ((currentEpisode + episodeOffset) % 3n == 0n) {
+        return currentEpisode + episodeOffset - 1n;
+    }
+    if ((currentEpisode + episodeOffset) % 3n == 1n) {
+        return currentEpisode + episodeOffset - 2n;
+    }
+}
+
 module.exports = {
     purchaseCoverage,
     getCurrentEpisode,
@@ -119,4 +132,5 @@ module.exports = {
     getEpisodeFinishTime,
     expectAllowedUnderstaking,
     createPoolInitData,
-}; 
+    findClosestStakableEpisode
+};

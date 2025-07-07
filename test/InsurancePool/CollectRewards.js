@@ -3,7 +3,7 @@ const {
     loadFixture,
 } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
 const { expect } = require("chai");
-const { purchaseCoverage, getCurrentEpisode, expectAllowedUnderstaking } = require("../helpers.js");
+const { purchaseCoverage, getCurrentEpisode, expectAllowedUnderstaking, findClosestStakableEpisode } = require("../helpers.js");
 const { basicFixture } = require("../fixtures.js");
 const { ALLOWED_UNDERSTAKING, SECS_IN_DAY, EPISODE_DURATION } = require("../constants.js");
 
@@ -16,10 +16,8 @@ describe("InsurancePool", function () {
         const ownerStakeAmount = ethers.parseUnits("10", "ether");
         const coveragePurchaseAmount = ethers.parseUnits("1", "ether");
         const coverageAmountMultiplier = 10n;
-        const episodeOffset = 23n;
 
-        const currentEpisode = await getCurrentEpisode();
-        const episodeToStake = currentEpisode + episodeOffset;
+        const episodeToStake = await findClosestStakableEpisode(23n);
 
         await insurancePool.connect(poolUnderwriter).joinPool(underwriterStakeAmount, episodeToStake);
         await insurancePool.joinPool(ownerStakeAmount, episodeToStake);
@@ -55,11 +53,9 @@ describe("InsurancePool", function () {
         const ownerStakeAmount = ethers.parseUnits("10", "ether");
         const coveragePurchaseAmount = ethers.parseUnits("1", "ether");
         const coverageAmountMultiplier = 10n;
-        const episodeOffset = 23n;
         const collectionCycles = 20;
 
-        const currentEpisode = await getCurrentEpisode();
-        const episodeToStake = currentEpisode + episodeOffset;
+        const episodeToStake = await findClosestStakableEpisode(23n);
 
         // Create underwriter position
         await insurancePool.connect(poolUnderwriter).joinPool(underwriterStakeAmount, episodeToStake);

@@ -456,8 +456,8 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         );
         require(episodeToStake_ >= currentEpisode, "Outdated episode to stake");
         require(
-            (episodeToStake_ - currentEpisode) % 3 == 2,
-            "Staking episode must be a multiple of 3"
+            episodeToStake_ % 3 == 2,
+            "Staking episode must be a multiple of 91 days"
         );
 
         _updateEpisodesState();
@@ -472,7 +472,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
         uint newRewardShares = newShares +
             (newShares *
-                (episodeToStake_ - currentEpisode - 2) *
+                (episodeToStake_ - currentEpisode) *
                 bonusPerEpisodeStaked) /
             BASIS_POINTS;
         require(
@@ -554,8 +554,8 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         );
         require(episodeToStake_ >= currentEpisode, "Outdated episode to stake");
         require(
-            (episodeToStake_ - currentEpisode) % 3 == 2,
-            "Staking episode must be a multiple of 3"
+            episodeToStake_ % 3 == 2,
+            "Staking episode must be a multiple of 91 days"
         );
 
         _updateEpisodesState();

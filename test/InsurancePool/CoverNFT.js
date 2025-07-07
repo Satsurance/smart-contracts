@@ -2,7 +2,7 @@ const {
     time,
     loadFixture,
 } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
-const { getCurrentEpisode, purchaseCoverage } = require("../helpers.js");
+const { getCurrentEpisode, purchaseCoverage, findClosestStakableEpisode } = require("../helpers.js");
 const { basicFixture } = require("../fixtures.js");
 const { expect } = require("chai");
 
@@ -11,7 +11,6 @@ describe("CoverNFT", async function () {
     it("cover NFT is not transferable (soulbound)", async function () {
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const coverageAmount = ethers.parseUnits("10", "ether");
-        const episodeOffset = 23n;
 
         const { btcToken, insurancePool, coverNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
@@ -19,8 +18,7 @@ describe("CoverNFT", async function () {
         const signers = await ethers.getSigners();
         const addr1 = signers[2]; // Third signer for transfer attempt
 
-        const currentEpisode = await getCurrentEpisode();
-        const episodeToStake = currentEpisode + episodeOffset;
+        const episodeToStake = await findClosestStakableEpisode(23n);
 
         await insurancePool
             .connect(poolUnderwriter)

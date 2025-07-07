@@ -2,7 +2,7 @@ const {
     time,
     loadFixture,
 } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
-const { purchaseCoverage, getCurrentEpisode, expectAllowedUnderstaking } = require("../helpers.js");
+const { purchaseCoverage, getCurrentEpisode, expectAllowedUnderstaking, findClosestStakableEpisode } = require("../helpers.js");
 const { basicFixture } = require("../fixtures.js");
 const { ALLOWED_UNDERSTAKING, EPISODE_DURATION, SECS_IN_DAY, BASIS_POINTS } = require("../constants.js");
 
@@ -16,7 +16,6 @@ describe("Underwriter Fee", async function () {
         const coveragePurchaseAmount = ethers.parseUnits("1", "ether");
         const coverageAmountMultiplier = 10n;
         const underwriterFee = 1000n;
-        const episodeOffset = 23n;
 
         // Expected calculations
         const rewardPercentage = 85n; // 85% goes to0 stakers, 15% protocol fee
@@ -36,9 +35,7 @@ describe("Underwriter Fee", async function () {
         const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
-
-        const currentEpisode = await getCurrentEpisode();
-        const episodeToStake = currentEpisode + episodeOffset;
+        const episodeToStake = await findClosestStakableEpisode(23n);
 
         // Create underwriter position (long duration for comparison)
         await insurancePool
@@ -109,13 +106,11 @@ describe("Underwriter Fee", async function () {
         const coverageAmountMultiplier = 10n;
         const initialUnderwriterFee = 1000n; // 10%
         const newUnderwriterFee = 500n; // 5%
-        const episodeOffset = 23n;
 
         const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
-        const currentEpisode = await getCurrentEpisode();
-        const episodeToStake = currentEpisode + episodeOffset;
+        const episodeToStake = await findClosestStakableEpisode(23n);
         const coverageAmount = coveragePurchaseAmount * coverageAmountMultiplier;
         const rewardPercentage = 85n; // 85% goes to stakers, 15% protocol fee
         const rewardAmount = coveragePurchaseAmount * rewardPercentage / 100n;

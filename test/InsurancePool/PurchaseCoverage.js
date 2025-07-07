@@ -2,7 +2,7 @@ const {
     time,
     loadFixture,
 } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
-const { purchaseCoverage, getCurrentEpisode } = require("../helpers.js");
+const { purchaseCoverage, getCurrentEpisode, findClosestStakableEpisode } = require("../helpers.js");
 const { basicFixture } = require("../fixtures.js");
 const { SECS_IN_DAY, EPISODE_DURATION } = require("../constants.js");
 const { expect } = require("chai");
@@ -12,15 +12,13 @@ describe("PurchaseCoverage", function () {
         // Test parameters
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const coverageAmount = ethers.parseUnits("10", "ether");
-        const episodeOffset = 23n;
 
         // Load fixture with all contracts deployed and configured
         const { btcToken, insurancePool, coverNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
         // Calculate valid episode for staking (required before coverage can be purchased)
-        const currentEpisode = await getCurrentEpisode();
-        const episodeToStake = currentEpisode + episodeOffset;
+        const episodeToStake = await findClosestStakableEpisode(23n);
 
         // Underwriter must join pool first to provide liquidity
         await insurancePool
@@ -74,15 +72,13 @@ describe("PurchaseCoverage", function () {
     it("should fail to purchase coverage exceeding product allocation", async function () {
         // Test parameters
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
-        const episodeOffset = 23n;
 
         // Load fixture
         const { btcToken, insurancePool, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
         // Calculate valid episode for staking
-        const currentEpisode = await getCurrentEpisode();
-        const episodeToStake = currentEpisode + episodeOffset;
+        const episodeToStake = await findClosestStakableEpisode(23n);
 
         // Underwriter joins pool
         await insurancePool
@@ -114,15 +110,13 @@ describe("PurchaseCoverage", function () {
     it("should handle allocations for multiple products independently", async function () {
         // Test parameters
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
-        const episodeOffset = 23n;
 
         // Load fixture
         const { btcToken, insurancePool, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
         // Calculate valid episode for staking
-        const currentEpisode = await getCurrentEpisode();
-        const episodeToStake = currentEpisode + episodeOffset;
+        const episodeToStake = await findClosestStakableEpisode(23n);
 
         // Underwriter joins pool
         await insurancePool
@@ -183,15 +177,13 @@ describe("PurchaseCoverage", function () {
         // Test parameters
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const coverageAmount = ethers.parseUnits("10", "ether");
-        const episodeOffset = 11n; // Stake far enough in the future to cover all purchases
 
         // Load fixture
         const { btcToken, insurancePool, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
         // Underwriter joins pool for a future episode
-        const currentEpisode = await getCurrentEpisode();
-        const episodeToStake = currentEpisode + episodeOffset;
+        const episodeToStake = await findClosestStakableEpisode(11n);
         await insurancePool
             .connect(poolUnderwriter)
             .joinPool(underwriterStakeAmount, episodeToStake);
@@ -237,15 +229,13 @@ describe("PurchaseCoverage", function () {
         // Test parameters
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const coverageAmount = ethers.parseUnits("10", "ether");
-        const episodeOffset = 11n; // Stake far enough in the future to cover all purchases
 
         // Load fixture
         const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
         // Underwriter joins pool for a future episode
-        const currentEpisode = await getCurrentEpisode();
-        const episodeToStake = currentEpisode + episodeOffset;
+        const episodeToStake = await findClosestStakableEpisode(11n);
         await insurancePool
             .connect(poolUnderwriter)
             .joinPool(underwriterStakeAmount, episodeToStake);
@@ -274,8 +264,7 @@ describe("PurchaseCoverage", function () {
         await time.increase(Number(EPISODE_DURATION) * 25);
 
         // Extend the underwriter's position to refresh the staked assets
-        const newCurrentEpisode = await getCurrentEpisode();
-        const newEpisodeToStake = newCurrentEpisode + 11n; // Extend to a future episode
+        const newEpisodeToStake = await findClosestStakableEpisode(11n);
         await insurancePool
             .connect(poolUnderwriter)
             .extendPoolPosition(

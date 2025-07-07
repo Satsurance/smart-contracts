@@ -2,7 +2,7 @@ const {
     time,
     loadFixture,
 } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
-const { getCurrentEpisode } = require("../helpers.js");
+const { getCurrentEpisode, findClosestStakableEpisode } = require("../helpers.js");
 const { basicFixture } = require("../fixtures.js");
 const { EPISODE_DURATION } = require("../constants.js");
 
@@ -24,7 +24,7 @@ describe("Underwriter First Loss Slashing", function () {
             underwriterStakeAfterSlash: ethers.parseUnits("5", "ether"),
             userStakeAfterSlash: ethers.parseUnits("90", "ether"),
             totalAssetsAfterSlash: ethers.parseUnits("95", "ether"),
-            underwriterEpisodeOffset: 23n,
+            underwriterEpisodeToStake: () => findClosestStakableEpisode(23n),
         },
         {
             name: "underwriter covers whole claim 10",
@@ -34,7 +34,7 @@ describe("Underwriter First Loss Slashing", function () {
             underwriterStakeAfterSlash: ethers.parseUnits("0", "ether"),
             userStakeAfterSlash: ethers.parseUnits("90", "ether"),
             totalAssetsAfterSlash: ethers.parseUnits("90", "ether"),
-            underwriterEpisodeOffset: 23n,
+            underwriterEpisodeToStake: () => findClosestStakableEpisode(23n),
         },
         {
             name: "underwriter does not cover claim whole claim",
@@ -44,7 +44,7 @@ describe("Underwriter First Loss Slashing", function () {
             underwriterStakeAfterSlash: ethers.parseUnits("0", "ether"),
             userStakeAfterSlash: ethers.parseUnits("80", "ether"),
             totalAssetsAfterSlash: ethers.parseUnits("80", "ether"),
-            underwriterEpisodeOffset: 23n,
+            underwriterEpisodeToStake: () => findClosestStakableEpisode(23n),
         },
         {
             name: "underwriter doesn't cover whole claim, but has some stake left",
@@ -54,7 +54,7 @@ describe("Underwriter First Loss Slashing", function () {
             underwriterStakeAfterSlash: ethers.parseUnits("8.888888888888888888", "ether"),
             userStakeAfterSlash: ethers.parseUnits("71.111111111111111111", "ether"),
             totalAssetsAfterSlash: ethers.parseUnits("80", "ether"),
-            underwriterEpisodeOffset: 23n,
+            underwriterEpisodeToStake: () => findClosestStakableEpisode(23n),
         },
         // EXPIRED UNDERWRITER POSITION CASES
         {
@@ -65,7 +65,7 @@ describe("Underwriter First Loss Slashing", function () {
             underwriterStakeAfterSlash: ethers.parseUnits("5", "ether"),
             userStakeAfterSlash: ethers.parseUnits("90", "ether"),
             totalAssetsAfterSlash: ethers.parseUnits("90", "ether"),
-            underwriterEpisodeOffset: 2n,
+            underwriterEpisodeToStake: () => findClosestStakableEpisode(2n),
         },
         {
             name: "expired underwriter covers whole claim 10",
@@ -75,7 +75,7 @@ describe("Underwriter First Loss Slashing", function () {
             underwriterStakeAfterSlash: ethers.parseUnits("0", "ether"),
             userStakeAfterSlash: ethers.parseUnits("90", "ether"),
             totalAssetsAfterSlash: ethers.parseUnits("90", "ether"),
-            underwriterEpisodeOffset: 2n,
+            underwriterEpisodeToStake: () => findClosestStakableEpisode(2n),
         },
         {
             name: "expired underwriter does not cover claim whole claim",
@@ -85,7 +85,7 @@ describe("Underwriter First Loss Slashing", function () {
             underwriterStakeAfterSlash: ethers.parseUnits("0", "ether"),
             userStakeAfterSlash: ethers.parseUnits("80", "ether"),
             totalAssetsAfterSlash: ethers.parseUnits("80", "ether"),
-            underwriterEpisodeOffset: 2n,
+            underwriterEpisodeToStake: () => findClosestStakableEpisode(2n),
         },
         {
             name: "expired underwriter doesn't cover whole claim, but has some stake left",
@@ -95,30 +95,27 @@ describe("Underwriter First Loss Slashing", function () {
             underwriterStakeAfterSlash: ethers.parseUnits("8.888888888888888888", "ether"),
             userStakeAfterSlash: ethers.parseUnits("71.111111111111111111", "ether"),
             totalAssetsAfterSlash: ethers.parseUnits("71.111111111111111111", "ether"),
-            underwriterEpisodeOffset: 2n,
+            underwriterEpisodeToStake: () => findClosestStakableEpisode(2n),
         }
     ];
 
     testCases.forEach(
         ({ name, underwriterStake, underwriterStakeAfterSlash, totalAssetsAfterSlash,
-            userStakeAfterSlash, underwriterEpisodeOffset, userStake, claimAmount
+            userStakeAfterSlash, underwriterEpisodeToStake, userStake, claimAmount
         }) => {
             it(`test ${name}`, async function () {
-                const episodeOffset = 23n;
-
                 const { insurancePool, claimer, positionNFT, accounts, deploymentParams } = await loadFixture(
                     firstLoss10PercentFixture
                 );
                 const { owner, poolUnderwriter } = accounts;
 
-                const currentEpisode = await getCurrentEpisode();
-                const userEpisodeToStake = currentEpisode + episodeOffset;
-                const underwriterEpsisodeToStake = currentEpisode + underwriterEpisodeOffset;
+                const userEpisodeToStake = await findClosestStakableEpisode(23n);
+                const underwriterEpisodeToStakeValue = await underwriterEpisodeToStake();
 
                 // Join pool
                 await insurancePool
                     .connect(poolUnderwriter)
-                    .joinPool(underwriterStake, underwriterEpsisodeToStake);
+                    .joinPool(underwriterStake, underwriterEpisodeToStakeValue);
                 await insurancePool.connect(owner).joinPool(userStake, userEpisodeToStake);
 
                 await time.increaseTo(userEpisodeToStake * EPISODE_DURATION);

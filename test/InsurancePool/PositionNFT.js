@@ -2,7 +2,7 @@ const {
     time,
     loadFixture,
 } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
-const { getCurrentEpisode } = require("../helpers.js");
+const { getCurrentEpisode, findClosestStakableEpisode } = require("../helpers.js");
 const { basicFixture } = require("../fixtures.js");
 const { expect } = require("chai");
 
@@ -11,7 +11,6 @@ describe("PositionNFT", async function () {
     it("regular stakers can transfer NFT", async function () {
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const userStakeAmount = ethers.parseUnits("10", "ether");
-        const episodeOffset = 23n;
 
         const { insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
@@ -19,8 +18,7 @@ describe("PositionNFT", async function () {
         const signers = await ethers.getSigners();
         const addr1 = signers[2]; // Third signer
 
-        const currentEpisode = await getCurrentEpisode();
-        const episodeToStake = currentEpisode + episodeOffset;
+        const episodeToStake = await findClosestStakableEpisode(23n);
 
         await insurancePool
             .connect(poolUnderwriter)
@@ -42,13 +40,11 @@ describe("PositionNFT", async function () {
 
     it("underwriter cannot transfer NFT (as sender)", async function () {
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
-        const episodeOffset = 23n;
 
         const { insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
-        const currentEpisode = await getCurrentEpisode();
-        const episodeToStake = currentEpisode + episodeOffset;
+        const episodeToStake = await findClosestStakableEpisode(23n);
 
         await insurancePool
             .connect(poolUnderwriter)
@@ -71,14 +67,12 @@ describe("PositionNFT", async function () {
     it("underwriter cannot receive NFT (as receiver)", async function () {
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const userStakeAmount = ethers.parseUnits("10", "ether");
-        const episodeOffset = 23n;
 
         const { insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
 
         // Calculate valid episode for staking
-        const currentEpisode = await getCurrentEpisode();
-        const episodeToStake = currentEpisode + episodeOffset;
+        const episodeToStake = await findClosestStakableEpisode(23n);
 
         // Create underwriter position first (required for pool to function)
         await insurancePool
@@ -108,7 +102,6 @@ describe("PositionNFT", async function () {
     it("new NFT owner can quit pool after transfer", async function () {
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const userStakeAmount = ethers.parseUnits("10", "ether");
-        const episodeOffset = 23n;
 
         const { btcToken, insurancePool, positionNFT, accounts } = await loadFixture(basicFixture);
         const { owner, poolUnderwriter } = accounts;
@@ -116,8 +109,7 @@ describe("PositionNFT", async function () {
         const signers = await ethers.getSigners();
         const newOwner = signers[2]; // Third signer
 
-        const currentEpisode = await getCurrentEpisode();
-        const episodeToStake = currentEpisode + episodeOffset;
+        const episodeToStake = await findClosestStakableEpisode(23n);
 
         await insurancePool
             .connect(poolUnderwriter)

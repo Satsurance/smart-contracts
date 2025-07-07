@@ -2,7 +2,7 @@ const {
     time,
     loadFixture,
 } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
-const { purchaseCoverage, getCurrentEpisode } = require("./helpers.js");
+const { purchaseCoverage, getCurrentEpisode, findClosestStakableEpisode } = require("./helpers.js");
 const { basicFixture } = require("./fixtures.js");
 
 const { expect } = require("chai");
@@ -13,7 +13,6 @@ describe("Claimer", async function () {
         // Test Constants
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const claimAmount = ethers.parseUnits("10", "ether");
-        const episodeOffset = 23n;
         const claimDescription = "Test claim";
 
         const { insurancePool, claimer, accounts, deploymentParams } = await loadFixture(
@@ -22,12 +21,11 @@ describe("Claimer", async function () {
         const { owner, poolUnderwriter } = accounts;
 
         // Calculate valid episode for staking
-        const currentEpisode6 = await getCurrentEpisode();
-        const episodeToStake6 = currentEpisode6 + episodeOffset;
+        const episodeToStake = await findClosestStakableEpisode(23n);
 
         await insurancePool
             .connect(poolUnderwriter)
-            .joinPool(underwriterStakeAmount, episodeToStake6);
+            .joinPool(underwriterStakeAmount, episodeToStake);
 
         // Create claim
         await claimer.createClaim(
@@ -79,7 +77,6 @@ describe("Claimer", async function () {
         const underwriterStakeAmount = ethers.parseUnits("100", "ether");
         const claimAmount = ethers.parseUnits("10", "ether");
         const claimReductionBasisPoints = 500; // 5% reduction (maximum allowed)
-        const episodeOffset = 23n;
         const claimDescription = "Test claim with reduction";
 
         const { insurancePool, claimer, btcToken, accounts, deploymentParams } = await loadFixture(
@@ -99,8 +96,7 @@ describe("Claimer", async function () {
         const expectedReducedAmount = claimAmount - expectedReductionAmount;
 
         // Calculate valid episode for staking
-        const currentEpisode = await getCurrentEpisode();
-        const episodeToStake = currentEpisode + episodeOffset;
+        const episodeToStake = await findClosestStakableEpisode(23n);
 
         await insurancePool
             .connect(poolUnderwriter)
