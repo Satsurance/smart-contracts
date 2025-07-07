@@ -114,14 +114,27 @@ function createPoolInitData(poolUnderwriter, governor, poolAsset, claimer, minUn
 
 async function findClosestStakableEpisode(episodeOffset) {
     const currentEpisode = await getCurrentEpisode();
-    if ((currentEpisode + episodeOffset) % 3n == 2n) {
-        return currentEpisode + episodeOffset;
+    return findClosestStakableEpisodeParams(currentEpisode, episodeOffset);
+}
+
+function findClosestStakableEpisodeParams(currentEpisode, episodeOffset) {
+    const targetEpisode = currentEpisode + episodeOffset;
+    if (targetEpisode % 3n == 2n) {
+        return targetEpisode;
     }
-    if ((currentEpisode + episodeOffset) % 3n == 0n) {
-        return currentEpisode + episodeOffset - 1n;
+
+    const offset = targetEpisode % 3n;
+    if(offset == 0n && (targetEpisode - 1n >= currentEpisode)) {
+      return targetEpisode - 1n;
     }
-    if ((currentEpisode + episodeOffset) % 3n == 1n) {
-        return currentEpisode + episodeOffset - 2n;
+    if(offset == 0n && (targetEpisode - 1n < currentEpisode)) {
+      return targetEpisode + 2n;
+    }
+    if(offset == 1n && (targetEpisode + 1n < currentEpisode + 24n)) {
+      return targetEpisode + 1n;
+    }
+    if(offset == 1n &&  (targetEpisode + 1n >= currentEpisode + 24n)) {
+      return targetEpisode - 2n;
     }
 }
 
@@ -132,5 +145,6 @@ module.exports = {
     getEpisodeFinishTime,
     expectAllowedUnderstaking,
     createPoolInitData,
-    findClosestStakableEpisode
+    findClosestStakableEpisode,
+    findClosestStakableEpisodeParams
 };

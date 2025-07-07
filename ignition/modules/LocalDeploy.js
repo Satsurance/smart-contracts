@@ -2,6 +2,7 @@ const { buildModule } = require("@nomicfoundation/hardhat-ignition/modules");
 const { ethers } = require("ethers");
 const InsuranceSetup = require("./Insurance");
 const { EPISODE_DURATION } = require("../../test/constants");
+const { findClosestStakableEpisodeParams } = require("../../test/helpers");
 
 const BIG_STAKER_ADDR = "0xe63b611C72e046e5FA05C3EaA972F2bbD6E9a1CB";
 const POOL_OWNER_ADDR = "0xe1a5328f489C261410563a08a92f1FFdfF045407";
@@ -20,7 +21,7 @@ module.exports = buildModule("LocalDeploy", (m) => {
   m.call(btcToken, "transfer", [
     m.getAccount(2),
     ethers.parseUnits("100", "ether").toString(),
-  ], {id: "transferBtcToUser"});
+  ], { id: "transferBtcToUser" });
   m.call(btcToken, "approve", [
     insurancePool,
     ethers.parseUnits("100", "ether").toString(),
@@ -35,11 +36,12 @@ module.exports = buildModule("LocalDeploy", (m) => {
   const stakeEpisodeOffset = 23n;
   const currentTime = BigInt(Math.floor(Date.now() / 1000));
   const currentEpisode = currentTime / EPISODE_DURATION;
+  const episodeToStake = findClosestStakableEpisodeParams(currentEpisode, stakeEpisodeOffset);
 
   const joinPool = m.call(
     insurancePool,
     "joinPool",
-    [ethers.parseUnits("10", "ether").toString(), currentEpisode + stakeEpisodeOffset],
+    [ethers.parseUnits("10", "ether").toString(), episodeToStake],
     { from: m.getAccount(1), id: "underwriterJoin" }
   );
 
