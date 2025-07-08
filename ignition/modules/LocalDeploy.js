@@ -52,9 +52,9 @@ module.exports = buildModule("LocalDeploy", (m) => {
       0,
       m.getAccount(0),
       365 * 24 * 60 * 60,
-      ethers.parseUnits("10", "ether").toString(),
+      ethers.parseUnits("9", "ether").toString(),
     ],
-    { id: "purchase1btc1year", after: [joinPool] }
+    { id: "purchaseCoverage", after: [joinPool] }
   );
 
   m.call(

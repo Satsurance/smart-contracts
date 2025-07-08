@@ -867,7 +867,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             coverageDuration_ <= product.maxCoverageDuration,
             "Coverage duration is too long"
         );
-        require(coverageDuration_ >= 28 days, "Coverage duration is too short");
+        require(coverageDuration_ >= 91 days / 3, "Coverage duration is too short");
         require(coveredAccount_ != address(0), "Wrong address covered");
 
         _updateEpisodesState();
@@ -1039,9 +1039,9 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         maxUnderwriterSharesToUnstake_ = maxUnderwriterSharesToUnstake();
     }
 
-    function getProductAllocation(uint productId_) external returns (uint) {
+    function getProduct(uint productId_) external returns (Product memory) {
         _updateEpisodesState();
         _updateProductAllocation(products[productId_]);
-        return products[productId_].allocation;
+        return products[productId_];
     }
 }

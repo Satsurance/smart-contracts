@@ -26,7 +26,7 @@ describe("Reward Bonus for Longer Stakers", async function () {
         const currentEpisode = await getCurrentEpisode()
         const shortEpisodeOffset = shortEpisodeToStake - currentEpisode;
         const longEpisodeOffset = longEpisodeToStake - currentEpisode;
-        const coverageDuration = BigInt(SECS_IN_DAY * 30); // 30 days
+        const coverageDuration = BigInt(SECS_IN_DAY * 31); // 30 days
 
         // Expected calculations
         const rewardPercentage = 85n; // 85% goes to0 stakers, 15% protocol fee
