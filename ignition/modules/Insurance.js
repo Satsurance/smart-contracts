@@ -36,6 +36,10 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   const operator = m.getParameter("operator", m.getAccount(0));
   const guardian = m.getParameter("guardian", m.getAccount(0));
 
+  // ControlBoard parameters
+  const controlBoardController = m.getParameter("controlBoardController", m.getAccount(0));
+  const controlBoardThreshold = m.getParameter("controlBoardThreshold", 1);
+
   // Mock Btc token
   let btcToken = m.contract("BTCToken", [wbtcInitialSupply]);
 
@@ -55,6 +59,13 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     [],
     ["0x0000000000000000000000000000000000000000"],
   ]);
+
+  // Deploy ControlBoard
+  let controlBoard = m.contract("ControlBoard", [
+    [controlBoardController], // array of initial controllers
+    controlBoardThreshold,    // threshold
+  ]);
+
   let governor_c = m.contract("SatsuranceGovernor", [sursTokenProxy, timelock]);
   m.call(timelock, "grantRole", [proposerRoleId, governor_c]);
 
@@ -246,6 +257,9 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   const sursToken = m.contractAt("SursToken", sursTokenProxy);
   const claimer = m.contractAt("Claimer", claimerProxy);
 
+  // Grant ControlBoard OPERATOR_ROLE in Claimer to allow claim approvals
+  const OPERATOR_ROLE = m.staticCall(claimer, "OPERATOR_ROLE", []);
+  m.call(claimer, "grantRole", [OPERATOR_ROLE, controlBoard]);
 
   // Transfer token ownership to timelock
   m.call(sursToken, "transferOwnership", [timelock]);
@@ -266,6 +280,7 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
     positionNFT,
     coverDescriptor,
     positionDescriptor,
+    controlBoard,
   };
 });
 

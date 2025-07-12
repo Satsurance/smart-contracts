@@ -4,6 +4,8 @@ const DOMAIN_NAME = "Insurance Pool";
 const DOMAIN_VERSION = "1";
 const POOL_FACTORY_DOMAIN_NAME = "PoolFactory";
 const POOL_FACTORY_DOMAIN_VERSION = "1";
+const CONTROL_BOARD_DOMAIN_NAME = "ControlBoard";
+const CONTROL_BOARD_DOMAIN_VERSION = "1";
 
 async function signUnstakeRequest(signer, contractAddress, params) {
   const domain = {
@@ -93,12 +95,41 @@ async function signCreatePool(signer, contractAddress, params) {
   return ethers.Signature.from(signature);
 }
 
+async function signControlBoardTransaction(signer, contractAddress, params) {
+  const domain = {
+    name: CONTROL_BOARD_DOMAIN_NAME,
+    version: CONTROL_BOARD_DOMAIN_VERSION,
+    chainId: params.chainId,
+    verifyingContract: contractAddress,
+  };
+
+  const types = {
+    Transaction: [
+      { name: "target", type: "address" },
+      { name: "value", type: "uint256" },
+      { name: "data", type: "bytes" },
+    ],
+  };
+
+  const value = {
+    target: params.target,
+    value: params.value,
+    data: params.data,
+  };
+
+  const signature = await signer.signTypedData(domain, types, value);
+  return signature;
+}
+
 module.exports = {
   signUnstakeRequest,
   signCoveragePurchase,
   signCreatePool,
+  signControlBoardTransaction,
   DOMAIN_NAME,
   DOMAIN_VERSION,
   POOL_FACTORY_DOMAIN_NAME,
   POOL_FACTORY_DOMAIN_VERSION,
+  CONTROL_BOARD_DOMAIN_NAME,
+  CONTROL_BOARD_DOMAIN_VERSION,
 };
