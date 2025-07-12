@@ -942,6 +942,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         uint64 maxCoverageDuration_,
         uint64 maxPoolAllocationPercent_
     ) external onlyUnderwriter returns (uint) {
+        require(maxCoverageDuration_ >= EPISODE_DURATION, "Max coverage duration is too short.");
         require(
             maxCoverageDuration_ < (MAX_ACTIVE_EPISODES - 1) * EPISODE_DURATION,
             "Max coverage duration is too long"
@@ -973,6 +974,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         uint64 maxPoolAllocationPercent_,
         bool active_
     ) external onlyUnderwriter {
+        require(maxCoverageDuration_ >= EPISODE_DURATION, "Max coverage duration is too short.");
         require(
             maxCoverageDuration_ < (MAX_ACTIVE_EPISODES - 1) * EPISODE_DURATION,
             "Max coverage duration is too long"
@@ -1027,7 +1029,8 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
             uint totalRewardShares_,
             uint poolRewardRate_,
             uint maxSharesUserToStake_,
-            uint maxUnderwriterSharesToUnstake_
+            uint maxUnderwriterSharesToUnstake_,
+            uint totalCoverAllocation_
         )
     {
         _updateEpisodesState();
@@ -1037,6 +1040,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
         poolRewardRate_ = poolRewardRate;
         maxSharesUserToStake_ = maxSharesUserToStake();
         maxUnderwriterSharesToUnstake_ = maxUnderwriterSharesToUnstake();
+        totalCoverAllocation_ = totalCoverAllocation;
     }
 
     function getProduct(uint productId_) external returns (Product memory) {
