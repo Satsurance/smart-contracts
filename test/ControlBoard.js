@@ -253,6 +253,40 @@ describe("ControlBoard", function () {
             expect(await controlBoard.isController(controller2.address)).to.be.true;
             expect(await controlBoard.controllersCount()).to.equal(2);
         });
+
+        it("Should approve transaction first, then execute with zero signatures", async function () {
+            // Prepare transaction data - transfer some tokens to nonController
+            const transferAmount = ethers.parseEther("50");
+            const transferData = testContract.interface.encodeFunctionData("transfer", [
+                nonController.address,
+                transferAmount
+            ]);
+
+            // First, transfer some tokens to the ControlBoard so it can send them
+            await testContract.transfer(controlBoard.target, transferAmount);
+
+            // Step 1: Approve the transaction
+            await expect(
+                controlBoard.connect(controller1).approveTransaction(
+                    testContract.target,
+                    0,
+                    transferData
+                )
+            ).to.emit(controlBoard, "TransactionApproved");
+
+            // Step 2: Execute transaction with zero signatures (since it's already approved)
+            await expect(
+                controlBoard.executeTransaction(
+                    testContract.target,
+                    0,
+                    transferData,
+                    [] // Empty signatures array
+                )
+            ).to.not.be.reverted;
+
+            // Verify the transaction was executed
+            expect(await testContract.balanceOf(nonController.address)).to.equal(transferAmount);
+        });
     });
 
     describe("Multi-Sig Controller Tests", function () {
@@ -456,6 +490,54 @@ describe("ControlBoard", function () {
             // Verify controller was added
             expect(await controlBoard.isController(controller3.address)).to.be.true;
             expect(await controlBoard.controllersCount()).to.equal(3);
+        });
+
+        it("Should approve transaction first, then execute with one signature", async function () {
+            // Prepare transaction data - transfer some tokens to nonController
+            const transferAmount = ethers.parseEther("75");
+            const transferData = testContract.interface.encodeFunctionData("transfer", [
+                nonController.address,
+                transferAmount
+            ]);
+
+            // First, transfer some tokens to the ControlBoard so it can send them
+            await testContract.transfer(controlBoard.target, transferAmount);
+
+            const txParams = {
+                target: testContract.target,
+                value: 0,
+                data: transferData,
+                chainId: chainId,
+            };
+
+            // Step 1: Controller1 approves the transaction
+            await expect(
+                controlBoard.connect(controller1).approveTransaction(
+                    testContract.target,
+                    0,
+                    transferData
+                )
+            ).to.emit(controlBoard, "TransactionApproved");
+
+            // Step 2: Execute transaction with one signature from controller2
+            // This should work because: 1 approval + 1 signature = 2 (meets threshold)
+            const signature2 = await signControlBoardTransaction(
+                controller2,
+                controlBoard.target,
+                txParams
+            );
+
+            await expect(
+                controlBoard.executeTransaction(
+                    txParams.target,
+                    txParams.value,
+                    txParams.data,
+                    [signature2]
+                )
+            ).to.not.be.reverted;
+
+            // Verify the transaction was executed
+            expect(await testContract.balanceOf(nonController.address)).to.equal(transferAmount);
         });
     });
 });

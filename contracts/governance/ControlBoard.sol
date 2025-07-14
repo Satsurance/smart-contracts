@@ -19,6 +19,10 @@ contract ControlBoard is EIP712 {
     // Transaction tracking
     mapping(bytes32 => bool) public executedTransactions;
 
+    // Transaction approvals
+    mapping(bytes32 => mapping(address => bool)) public transactionApprovals;
+    mapping(bytes32 => uint256) public approvalCount;
+
     // Events
     event ControllerAdded(address indexed controller);
     event ControllerRemoved(address indexed controller);
@@ -28,6 +32,10 @@ contract ControlBoard is EIP712 {
         address indexed target,
         uint256 value,
         bytes data
+    );
+    event TransactionApproved(
+        bytes32 indexed txHash,
+        address indexed controller
     );
 
     // Errors
@@ -40,6 +48,7 @@ contract ControlBoard is EIP712 {
     error TransactionFailed();
     error DuplicateSignature(address signer);
     error Unauthorized();
+    error TransactionAlreadyApproved(address controller);
 
     constructor(
         address[] memory initialControllers_,
@@ -113,6 +122,33 @@ contract ControlBoard is EIP712 {
     }
 
     /**
+     * @dev Approve a transaction - only callable by controllers
+     * @param target Target contract address
+     * @param value ETH value to send
+     * @param data Transaction data
+     */
+    function approveTransaction(
+        address target,
+        uint256 value,
+        bytes calldata data
+    ) external {
+        if (!isController[msg.sender]) revert Unauthorized();
+
+        bytes32 txHash = keccak256(
+            abi.encodePacked(address(this), target, value, data)
+        );
+
+        if (transactionApprovals[txHash][msg.sender]) {
+            revert TransactionAlreadyApproved(msg.sender);
+        }
+
+        transactionApprovals[txHash][msg.sender] = true;
+        approvalCount[txHash]++;
+
+        emit TransactionApproved(txHash, msg.sender);
+    }
+
+    /**
      * @dev Execute a transaction with multiple signatures
      * @param target Target contract address
      * @param value ETH value to send
@@ -135,8 +171,11 @@ contract ControlBoard is EIP712 {
             revert TransactionAlreadyExecuted(txHash);
         }
 
-        // Verify signatures using EIP712
-        _verifySignatures(target, value, data, signatures);
+        // Get existing approvals count
+        uint256 existingApprovals = approvalCount[txHash];
+
+        // Verify signatures using EIP712, accounting for existing approvals
+        _verifySignatures(target, value, data, signatures, existingApprovals);
 
         // Mark transaction as executed
         executedTransactions[txHash] = true;
@@ -154,15 +193,25 @@ contract ControlBoard is EIP712 {
      * @param value ETH value to send
      * @param data Transaction data
      * @param signatures Array of signatures
+     * @param existingApprovals Number of existing approvals
      */
     function _verifySignatures(
         address target,
         uint256 value,
         bytes calldata data,
-        bytes[] calldata signatures
+        bytes[] calldata signatures,
+        uint256 existingApprovals
     ) internal view {
-        if (signatures.length < threshold) {
-            revert InsufficientSignatures(signatures.length, threshold);
+        // Calculate required signatures after accounting for existing approvals
+        uint256 requiredSignatures = threshold > existingApprovals
+            ? threshold - existingApprovals
+            : 0;
+
+        if (signatures.length < requiredSignatures) {
+            revert InsufficientSignatures(
+                signatures.length,
+                requiredSignatures
+            );
         }
 
         // Create EIP712 structured data hash
@@ -170,6 +219,11 @@ contract ControlBoard is EIP712 {
             abi.encode(TRANSACTION_TYPEHASH, target, value, keccak256(data))
         );
         bytes32 messageHash = _hashTypedDataV4(structHash);
+
+        // Create transaction hash to check approvals
+        bytes32 txHash = keccak256(
+            abi.encodePacked(address(this), target, value, data)
+        );
 
         address[] memory signers = new address[](signatures.length);
         uint256 validSignatures = 0;
@@ -181,7 +235,12 @@ contract ControlBoard is EIP712 {
                 revert InvalidSignature(signer);
             }
 
-            // Check for duplicate signers
+            // Check if this controller already approved the transaction
+            if (transactionApprovals[txHash][signer]) {
+                revert DuplicateSignature(signer);
+            }
+
+            // Check for duplicate signers in current signatures
             for (uint256 j = 0; j < validSignatures; j++) {
                 if (signers[j] == signer) {
                     revert DuplicateSignature(signer);
