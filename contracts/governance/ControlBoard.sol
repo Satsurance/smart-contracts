@@ -138,6 +138,11 @@ contract ControlBoard is EIP712 {
             abi.encodePacked(address(this), target, value, data)
         );
 
+        // Check if transaction was already executed
+        if (executedTransactions[txHash]) {
+            revert TransactionAlreadyExecuted(txHash);
+        }
+
         if (transactionApprovals[txHash][msg.sender]) {
             revert TransactionAlreadyApproved(msg.sender);
         }
@@ -146,6 +151,10 @@ contract ControlBoard is EIP712 {
         approvalCount[txHash]++;
 
         emit TransactionApproved(txHash, msg.sender);
+
+        if (approvalCount[txHash] >= threshold) {
+            _executeTransaction(txHash, target, value, data);
+        }
     }
 
     /**
@@ -160,8 +169,8 @@ contract ControlBoard is EIP712 {
         uint256 value,
         bytes calldata data,
         bytes[] calldata signatures
-    ) external {
-        // Create transaction hash
+    ) public {
+        // Get existing approvals count
         bytes32 txHash = keccak256(
             abi.encodePacked(address(this), target, value, data)
         );
@@ -171,20 +180,13 @@ contract ControlBoard is EIP712 {
             revert TransactionAlreadyExecuted(txHash);
         }
 
-        // Get existing approvals count
         uint256 existingApprovals = approvalCount[txHash];
 
         // Verify signatures using EIP712, accounting for existing approvals
         _verifySignatures(target, value, data, signatures, existingApprovals);
 
-        // Mark transaction as executed
-        executedTransactions[txHash] = true;
-
-        // Execute the transaction
-        (bool success, ) = target.call{value: value}(data);
-        if (!success) revert TransactionFailed();
-
-        emit TransactionExecuted(txHash, target, value, data);
+        // Execute the transaction using internal function
+        _executeTransaction(txHash, target, value, data);
     }
 
     /**
@@ -250,5 +252,28 @@ contract ControlBoard is EIP712 {
             signers[validSignatures] = signer;
             validSignatures++;
         }
+    }
+
+    /**
+     * @dev Internal function to execute a transaction when threshold is already met through approvals
+     * @param txHash Pre-computed transaction hash
+     * @param target Target contract address
+     * @param value ETH value to send
+     * @param data Transaction data
+     */
+    function _executeTransaction(
+        bytes32 txHash,
+        address target,
+        uint256 value,
+        bytes calldata data
+    ) internal {
+        // Mark transaction as executed
+        executedTransactions[txHash] = true;
+
+        // Execute the transaction
+        (bool success, ) = target.call{value: value}(data);
+        if (!success) revert TransactionFailed();
+
+        emit TransactionExecuted(txHash, target, value, data);
     }
 }

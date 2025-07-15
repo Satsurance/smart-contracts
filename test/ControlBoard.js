@@ -254,7 +254,7 @@ describe("ControlBoard", function () {
             expect(await controlBoard.controllersCount()).to.equal(2);
         });
 
-        it("Should approve transaction first, then execute with zero signatures", async function () {
+        it("Should approve transaction and auto-execute when threshold is met", async function () {
             // Prepare transaction data - transfer some tokens to nonController
             const transferAmount = ethers.parseEther("50");
             const transferData = testContract.interface.encodeFunctionData("transfer", [
@@ -265,27 +265,28 @@ describe("ControlBoard", function () {
             // First, transfer some tokens to the ControlBoard so it can send them
             await testContract.transfer(controlBoard.target, transferAmount);
 
-            // Step 1: Approve the transaction
+            // Approve the transaction - should auto-execute since threshold=1
             await expect(
                 controlBoard.connect(controller1).approveTransaction(
                     testContract.target,
                     0,
                     transferData
                 )
-            ).to.emit(controlBoard, "TransactionApproved");
+            ).to.emit(controlBoard, "TransactionApproved")
+                .and.to.emit(controlBoard, "TransactionExecuted");
 
-            // Step 2: Execute transaction with zero signatures (since it's already approved)
+            // Verify the transaction was executed
+            expect(await testContract.balanceOf(nonController.address)).to.equal(transferAmount);
+
+            // Attempting to execute again should fail
             await expect(
                 controlBoard.executeTransaction(
                     testContract.target,
                     0,
                     transferData,
-                    [] // Empty signatures array
+                    []
                 )
-            ).to.not.be.reverted;
-
-            // Verify the transaction was executed
-            expect(await testContract.balanceOf(nonController.address)).to.equal(transferAmount);
+            ).to.be.revertedWithCustomError(controlBoard, "TransactionAlreadyExecuted");
         });
     });
 
@@ -510,14 +511,15 @@ describe("ControlBoard", function () {
                 chainId: chainId,
             };
 
-            // Step 1: Controller1 approves the transaction
+            // Step 1: Controller1 approves the transaction (1 approval, threshold=2, no auto-execution)
             await expect(
                 controlBoard.connect(controller1).approveTransaction(
                     testContract.target,
                     0,
                     transferData
                 )
-            ).to.emit(controlBoard, "TransactionApproved");
+            ).to.emit(controlBoard, "TransactionApproved")
+                .and.to.not.emit(controlBoard, "TransactionExecuted");
 
             // Step 2: Execute transaction with one signature from controller2
             // This should work because: 1 approval + 1 signature = 2 (meets threshold)
@@ -538,6 +540,98 @@ describe("ControlBoard", function () {
 
             // Verify the transaction was executed
             expect(await testContract.balanceOf(nonController.address)).to.equal(transferAmount);
+        });
+
+        it("Should auto-execute when multiple approvals meet threshold", async function () {
+            // Prepare transaction data - transfer some tokens to nonController  
+            const transferAmount = ethers.parseEther("60");
+            const transferData = testContract.interface.encodeFunctionData("transfer", [
+                nonController.address,
+                transferAmount
+            ]);
+
+            // First, transfer some tokens to the ControlBoard so it can send them
+            await testContract.transfer(controlBoard.target, transferAmount);
+
+            // Step 1: Controller1 approves the transaction (1 approval, threshold=2, no auto-execution)
+            await expect(
+                controlBoard.connect(controller1).approveTransaction(
+                    testContract.target,
+                    0,
+                    transferData
+                )
+            ).to.emit(controlBoard, "TransactionApproved")
+                .and.to.not.emit(controlBoard, "TransactionExecuted");
+
+            // Step 2: Controller2 approves the transaction (2 approvals = threshold, should auto-execute)
+            await expect(
+                controlBoard.connect(controller2).approveTransaction(
+                    testContract.target,
+                    0,
+                    transferData
+                )
+            ).to.emit(controlBoard, "TransactionApproved")
+                .and.to.emit(controlBoard, "TransactionExecuted");
+
+            // Verify the transaction was executed
+            expect(await testContract.balanceOf(nonController.address)).to.equal(transferAmount);
+
+            // Attempting to execute again should fail
+            await expect(
+                controlBoard.executeTransaction(
+                    testContract.target,
+                    0,
+                    transferData,
+                    []
+                )
+            ).to.be.revertedWithCustomError(controlBoard, "TransactionAlreadyExecuted");
+        });
+
+        it("Should fail when trying to approve an already executed transaction", async function () {
+            // Prepare transaction data - transfer some tokens to nonController  
+            const transferAmount = ethers.parseEther("40");
+            const transferData = testContract.interface.encodeFunctionData("transfer", [
+                nonController.address,
+                transferAmount
+            ]);
+
+            // First, transfer some tokens to the ControlBoard so it can send them
+            await testContract.transfer(controlBoard.target, transferAmount);
+
+            // Execute transaction with both signatures
+            const txParams = {
+                target: testContract.target,
+                value: 0,
+                data: transferData,
+                chainId: chainId,
+            };
+
+            const signature1 = await signControlBoardTransaction(
+                controller1,
+                controlBoard.target,
+                txParams
+            );
+            const signature2 = await signControlBoardTransaction(
+                controller2,
+                controlBoard.target,
+                txParams
+            );
+
+            await controlBoard.executeTransaction(
+                txParams.target,
+                txParams.value,
+                txParams.data,
+                [signature1, signature2]
+            );
+
+            // Now trying to approve the same transaction should fail
+            await expect(
+                controlBoard.connect(controller1).approveTransaction(
+                    testContract.target,
+                    0,
+                    transferData
+                )
+            ).to.be.revertedWithCustomError(controlBoard, "TransactionAlreadyExecuted");
         });
     });
 });
