@@ -3,12 +3,10 @@ const { ethers } = require("ethers");
 
 const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   // Token supply parameters
-  const initialSupply = m.getParameter("initialSupply", ethers.parseUnits("20000000000", "ether").toString());
   const wbtcInitialSupply = m.getParameter("wbtcInitialSupply", ethers.parseUnits("22000000", "ether").toString());
 
   // Timelock parameters
   const minTimelockDelay = m.getParameter("minTimelockDelay", 24 * 60 * 60); // 1 day
-  const proposerRoleId = m.getParameter("proposerRoleId", ethers.solidityPackedKeccak256(["string"], ["PROPOSER_ROLE"]));
 
   // Fee parameters
   const protocolFee = m.getParameter("protocolFee", 1500); // 15%
@@ -43,31 +41,17 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   // Mock Btc token
   let btcToken = m.contract("BTCToken", [wbtcInitialSupply]);
 
-  // Deploy upgradable token
-  let sursTokenLogic = m.contract("SursToken", [], { id: "sursTokenLogic" });
-  let sursTokenProxy = m.contract(
-    "ERC1967Proxy",
-    [
-      sursTokenLogic,
-      m.encodeFunctionCall(sursTokenLogic, "initialize", [initialSupply]),
-    ],
-    { id: "SursTokenProxy" }
-  );
-
-  let timelock = m.contract("Timelock", [
-    minTimelockDelay,
-    [],
-    ["0x0000000000000000000000000000000000000000"],
-  ]);
-
   // Deploy ControlBoard
   let controlBoard = m.contract("ControlBoard", [
     [controlBoardController], // array of initial controllers
     controlBoardThreshold,    // threshold
   ]);
 
-  let governor_c = m.contract("SatsuranceGovernor", [sursTokenProxy, timelock]);
-  m.call(timelock, "grantRole", [proposerRoleId, governor_c]);
+  let timelock = m.contract("Timelock", [
+    minTimelockDelay,
+    [], // proposers - empty array allows anybody to propose
+    [controlBoard], // executors - ControlBoard can execute
+  ]);
 
   // Deploy InsurancePool implementation
   let insurancePoolLogic = m.contract("InsurancePool", [], {
@@ -254,22 +238,15 @@ const InsuranceSetup = buildModule("InsuranceContracts", (m) => {
   const insurancePool = m.contractAt("InsurancePool", insurancePoolAddress);
 
   // Set contract ABIs to proxies
-  const sursToken = m.contractAt("SursToken", sursTokenProxy);
   const claimer = m.contractAt("Claimer", claimerProxy);
 
   // Grant ControlBoard OPERATOR_ROLE in Claimer to allow claim approvals
   const OPERATOR_ROLE = m.staticCall(claimer, "OPERATOR_ROLE", []);
   m.call(claimer, "grantRole", [OPERATOR_ROLE, controlBoard]);
 
-  // Transfer token ownership to timelock
-  m.call(sursToken, "transferOwnership", [timelock]);
-
-
   return {
     btcToken,
-    sursToken,
     insurancePool,
-    governor_c,
     timelock,
     claimer,
     poolFactory,
