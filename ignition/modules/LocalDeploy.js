@@ -9,7 +9,7 @@ const POOL_OWNER_ADDR = "0xe1a5328f489C261410563a08a92f1FFdfF045407";
 const FAUCET_ADDR = "0x7F21b4286ed33a09dD44e3068b524e759511dA76";
 
 module.exports = buildModule("LocalDeploy", (m) => {
-  const { btcToken, sursToken, insurancePool } = m.useModule(InsuranceSetup);
+  const { btcToken, insurancePool } = m.useModule(InsuranceSetup);
   m.call(btcToken, "approve", [
     insurancePool,
     ethers.parseUnits("200", "ether").toString(),
@@ -74,19 +74,6 @@ module.exports = buildModule("LocalDeploy", (m) => {
     "transfer",
     [FAUCET_ADDR, ethers.parseUnits("200", "ether").toString()],
     { id: "transfer2Faucet" }
-  );
-
-  m.call(
-    sursToken,
-    "transfer",
-    [BIG_STAKER_ADDR, ethers.parseUnits("200", "ether").toString()],
-    { id: "transferSurs2Staker" }
-  );
-  m.call(
-    sursToken,
-    "transfer",
-    [FAUCET_ADDR, ethers.parseUnits("200", "ether").toString()],
-    { id: "transferSurs2Faucet" }
   );
 
   const send1btc = m.send(

@@ -1,4 +1,5 @@
 require("@nomicfoundation/hardhat-toolbox");
+require("hardhat-deploy");
 require("dotenv").config();
 
 /** @type import('hardhat/config').HardhatUserConfig */
@@ -18,6 +19,24 @@ const config = {
       },
       viaIR: true,
     },
+  },
+  namedAccounts: {
+    deployer: {
+      default: 0, // here this will by default take the first account as deployer
+      bitlayer_testnet: process.env.DEPLOYER_ADDRESS || 0,
+    },
+    poolUnderwriter: {
+      default: 1, // here this will by default take the second account
+      bitlayer_testnet: process.env.POOL_UNDERWRITER_ADDRESS || 1,
+    },
+    protocolRewardsAddress: {
+      default: 2, // here this will by default take the third account
+      bitlayer_testnet: process.env.PROTOCOL_REWARDS_ADDRESS || 2,
+    },
+  },
+  paths: {
+    deploy: "deploy",
+    deployments: "deployments",
   },
 };
 
