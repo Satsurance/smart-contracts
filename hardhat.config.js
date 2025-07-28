@@ -1,14 +1,57 @@
 require("@nomicfoundation/hardhat-toolbox");
 require("hardhat-deploy");
-require("dotenv").config();
+require("dotenv").config(); // Fixed: removed incorrect path, now looks for .env by default
+require("@midl-xyz/hardhat-deploy");
+const { MempoolSpaceProvider } = require("@midl-xyz/midl-js-core");
 
-/** @type import('hardhat/config').HardhatUserConfig */
+const walletsPaths = {
+  leather: "m/86'/1'/0'/0/0"
+}
+
+
 const config = {
   networks: {
-    hardhat: {},
-    bitlayer_testnet: {
-      url: "https://rpc.ankr.com/bitlayer_testnet",
+    default: {
+      url: "https://rpc.regtest.midl.xyz",
+      accounts: {
+        mnemonic: process.env.LEATHER_MNEMONIC,
+        path: walletsPaths.leather
+      },
+      chainId: 777
     },
+  },
+  midl: {
+    path: "deployments",
+    networks: {
+      default: {
+        mnemonic: process.env.LEATHER_MNEMONIC,
+        confirmationsRequired: 1,
+        btcConfirmationsRequired: 1,
+        hardhatNetwork: "default",
+        network: {
+          explorerUrl: "https://mempool.regtest.midl.xyz",
+          id: "regtest",
+          network: "regtest"
+        },
+        provider: new MempoolSpaceProvider({
+          "regtest": "https://mempool.regtest.midl.xyz",
+        })
+
+      }
+    }
+
+
+  },
+  namedAccounts: {
+    deployer: {
+      default: 0,
+    },
+    poolUnderwriter: {
+      default: 1,
+    },
+    protocolRewardsAddress: {
+      default: 2,
+    }
   },
   solidity: {
     version: "0.8.28",
@@ -20,34 +63,6 @@ const config = {
       viaIR: true,
     },
   },
-  namedAccounts: {
-    deployer: {
-      default: 0, // here this will by default take the first account as deployer
-      bitlayer_testnet: process.env.DEPLOYER_ADDRESS || 0,
-    },
-    poolUnderwriter: {
-      default: 1, // here this will by default take the second account
-      bitlayer_testnet: process.env.POOL_UNDERWRITER_ADDRESS || 1,
-    },
-    protocolRewardsAddress: {
-      default: 2, // here this will by default take the third account
-      bitlayer_testnet: process.env.PROTOCOL_REWARDS_ADDRESS || 2,
-    },
-  },
-  paths: {
-    deploy: "deploy",
-    deployments: "deployments",
-  },
-};
-
-// Add private keys to bitlayer_testnet if they exist in .env
-if (process.env.PRIVATE_KEY) {
-  config.networks.bitlayer_testnet.accounts = [process.env.PRIVATE_KEY];
 }
 
-// Add API key to URL if it exists in .env
-if (process.env.BITLAYER_API_KEY) {
-  config.networks.bitlayer_testnet.url = `https://rpc.ankr.com/bitlayer_testnet/${process.env.BITLAYER_API_KEY}`;
-}
-
-module.exports = config;
+module.exports = config

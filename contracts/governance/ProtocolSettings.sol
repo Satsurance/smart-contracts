@@ -51,20 +51,21 @@ contract ProtocolSettings is
         address guardian_,
         uint256 protocolFee_
     ) public initializer {
+        require(
+            protocolFee_ <= MAX_PROTOCOL_FEE,
+            "Protocol fee exceeds maximum"
+        );
         __AccessControlEnumerable_init();
-
         _grantRole(DEFAULT_ADMIN_ROLE, owner_);
         _grantRole(OPERATOR_ROLE, operator_);
-
         _setRoleAdmin(OPERATOR_ROLE, OPERATOR_ROLE);
-
         coverNFT = coverNFT_;
         positionNFT = positionNFT_;
-        setBeacon(beacon_);
-        setProtocolRewardsAddress(protocolRewardsAddress_);
-        setCapitalPool(capitalPool_);
-        setGuardian(guardian_);
-        setProtocolFee(protocolFee_);
+        beacon = beacon_;
+        protocolRewardsAddress = protocolRewardsAddress_;
+        capitalPool = capitalPool_;
+        guardian = guardian_;
+        protocolFee = protocolFee_;
     }
 
     function setBeacon(

@@ -55,6 +55,7 @@ contract CapitalPool is
 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         poolFactory = IPoolFactory(_poolFactory);
+        updateGlobalSettings();
     }
 
     modifier onlyValidPool(uint poolId) {

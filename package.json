@@ -1,11 +1,14 @@
 {
   "name": "hardhat-project",
   "devDependencies": {
+    "@midl-xyz/ethers": "6.13.0-4",
+    "@midl-xyz/hardhat-deploy": "2.0.0-next.33",
+    "@midl-xyz/midl-js-core": "2.0.0-next.32",
     "@nomicfoundation/hardhat-ignition-ethers": "^0.15.8",
     "@nomicfoundation/hardhat-network-helpers": "^1.0.12",
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "dotenv": "^16.4.7",
-    "hardhat": "^2.22.17",
+    "hardhat": "^2.25.0",
     "hardhat-deploy": "^1.0.4"
   },
   "dependencies": {
