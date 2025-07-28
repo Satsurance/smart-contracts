@@ -12,10 +12,13 @@ const InsurancePoolArtifact = require("../artifacts/contracts/pool/InsurancePool
 // Constants
 const BTC_TOKEN_ADDRESS = "0xC726845d8b6f0586A12D31ec5075e47B28c8eC4A";
 
-module.exports = async ({ getNamedAccounts, midl, getChainId }) => {
-    await midl.initialize();
-
-    const { deployer, poolUnderwriter, protocolRewardsAddress } = await getNamedAccounts();
+module.exports = async ({ midl }) => {
+    await midl.initialize(2)
+    const protocolRewardsAddress = midl.getEVMAddress();
+    await midl.initialize(1)
+    const poolUnderwriter = midl.getEVMAddress()
+    await midl.initialize(0)
+    const deployer = midl.getEVMAddress()
 
     console.log("Deployment accounts (from namedAccounts):");
     console.log("Deployer:", deployer);
