@@ -386,6 +386,7 @@ contract InsurancePool is OwnableUpgradeable, PausableUpgradeable {
 
             uint sharesToAdd = (episodes[i].rewardShares * underwriterFee_) /
                 (BASIS_POINTS - underwriterFee_);
+            episodes[i].rewardShares += sharesToAdd;
 
             positions[0].rewardShares -= sharesToRemove;
             positions[0].rewardShares += sharesToAdd;
